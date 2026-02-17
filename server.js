@@ -11,6 +11,7 @@ const SCAN_INTERVAL = 8000;
 const TRADES_LIMIT = 200;
 
 let flaggedWhales = [];
+let recentRejects = [];
 let seenHashes = new Set();
 let stats = {
   tradesChecked: 0,
@@ -24,7 +25,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get('/api/whales', (req, res) => {
-  res.json({ flaggedWhales, stats });
+  res.json({ flaggedWhales, recentRejects, stats });
 });
 
 app.post('/api/test-webhook', async (req, res) => {
@@ -134,6 +135,22 @@ async function runScanner() {
             };
             flaggedWhales = [whale, ...flaggedWhales].slice(0, 100);
             await sendDiscordAlert(whale);
+          } else {
+            const failReasons = [];
+            if (positions.length >= 6) failReasons.push(`Too many positions (${positions.length})`);
+            if (pnlValue >= 30000) failReasons.push(`PNL too high ($${pnlValue.toLocaleString()})`);
+            if (pnlValue <= -30000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
+            if (maxPosValue <= 2000) failReasons.push(`Max position too small ($${maxPosValue.toFixed(2)})`);
+            recentRejects = [{
+              username: t.name || t.pseudonym || userAddress.slice(0, 10) + '...',
+              market_title: title,
+              buy_price: price,
+              pos_count: positions.length,
+              pnl: pnlValue,
+              max_pos_value: maxPosValue,
+              failReasons,
+              timestamp: new Date().toISOString()
+            }, ...recentRejects].slice(0, 3);
           }
         } catch (e) {}
       }

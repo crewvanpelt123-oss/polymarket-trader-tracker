@@ -1,8 +1,20 @@
 import React from 'react';
 import { FlaggedUser } from '../types';
 
+interface RecentReject {
+  username: string;
+  market_title: string;
+  buy_price: number;
+  pos_count: number;
+  pnl: number;
+  max_pos_value: number;
+  failReasons: string[];
+  timestamp: string;
+}
+
 interface ScannerFeedProps {
   flaggedUsers: FlaggedUser[];
+  recentRejects?: RecentReject[];
   scanStats?: {
     tradesChecked: number;
     lowPriceMatches: number;
@@ -15,7 +27,7 @@ interface ScannerFeedProps {
 }
 
 const ScannerFeed: React.FC<ScannerFeedProps> = ({
-  flaggedUsers, scanStats, windowStartTime, onTrack, isAlreadyTracked
+  flaggedUsers, recentRejects = [], scanStats, windowStartTime, onTrack, isAlreadyTracked
 }) => {
   const truncAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   const formatTime = (ts: string) => {
@@ -129,6 +141,47 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
           <div className="flex-1 bg-slate-800/50 rounded-lg border border-slate-700/50 p-4">
             <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Potentials</div>
             <div className="text-2xl font-bold text-emerald-400 mt-2">{flaggedUsers.length}</div>
+          </div>
+        </div>
+      )}
+
+      {recentRejects.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Recent Near-Misses</h3>
+          <div className="space-y-2">
+            {recentRejects.map((reject, i) => (
+              <div key={i} className="bg-slate-800/30 rounded-lg border border-slate-800 px-4 py-3 flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-300 truncate">{reject.username}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">{(reject.buy_price * 100).toFixed(0)}c BUY</span>
+                    <span className="text-[10px] text-slate-600 font-mono">{formatTime(reject.timestamp)}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5 truncate">{reject.market_title}</div>
+                </div>
+                <div className="flex items-center gap-3 text-[10px] shrink-0">
+                  <div className="text-center">
+                    <div className="text-slate-600 font-bold uppercase">Pos</div>
+                    <div className="text-slate-400">{reject.pos_count}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-slate-600 font-bold uppercase">PNL</div>
+                    <div className={reject.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}>${reject.pnl.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-slate-600 font-bold uppercase">Max Val</div>
+                    <div className="text-indigo-400">${reject.max_pos_value.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1 shrink-0 max-w-[200px]">
+                  {reject.failReasons.map((reason: string, j: number) => (
+                    <span key={j} className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 font-medium">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

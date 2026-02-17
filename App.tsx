@@ -25,6 +25,7 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isScanning, setIsScanning] = useState(true);
   const [isHeartbeating, setIsHeartbeating] = useState(false);
+  const [recentRejects, setRecentRejects] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -49,6 +50,7 @@ const App: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           setFlaggedUsers(data.flaggedWhales);
+          setRecentRejects(data.recentRejects || []);
           setScanStats(data.stats);
           setIsHeartbeating(true);
           setTimeout(() => setIsHeartbeating(false), 800);
@@ -200,7 +202,7 @@ const App: React.FC = () => {
           {currentView === 'traders' ? (
             <TradeFeed trades={selectedTrader ? trades.filter(t => t.trader_address === selectedTrader) : trades} />
           ) : (
-            <ScannerFeed flaggedUsers={flaggedUsers} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
+            <ScannerFeed flaggedUsers={flaggedUsers} recentRejects={recentRejects} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
           )}
         </div>
       </main>

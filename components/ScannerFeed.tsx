@@ -20,7 +20,7 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
   const truncAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   const formatTime = (ts: string) => {
     const d = new Date(ts);
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
   };
 
   const getFlagReason = (user: FlaggedUser) => {

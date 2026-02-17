@@ -77,7 +77,7 @@ async function runScanner() {
       }
       stats.tradesChecked++;
     }
-    stats.lastScanTime = new Date().toLocaleTimeString();
+    stats.lastScanTime = new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
   } catch (err) {
     console.error("Scanner Loop Error:", err);
   }

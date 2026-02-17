@@ -176,6 +176,7 @@ const App: React.FC = () => {
           currentView={currentView}
           isScanning={isScanning}
           onToggleScan={() => setIsScanning(!isScanning)}
+          onClearHistory={() => setFlaggedUsers([])}
           scanStats={scanStats}
           windowStartTime={'Server Launch'}
           isHeartbeating={isHeartbeating}

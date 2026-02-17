@@ -10,6 +10,7 @@ interface DashboardHeaderProps {
   currentView: 'traders' | 'scanner';
   isScanning?: boolean;
   onToggleScan?: () => void;
+  onClearHistory?: () => void;
   scanStats?: {
     tradesChecked: number;
     lowPriceMatches: number;
@@ -20,8 +21,8 @@ interface DashboardHeaderProps {
   isHeartbeating?: boolean;
 }
 
-const DashboardHeader: React.FC<DashboardHeaderProps> = ({ 
-  isRefreshing, onRefresh, selectedTrader, onAnalyze, isAnalyzing, currentView, isScanning, onToggleScan, scanStats, windowStartTime, isHeartbeating 
+const DashboardHeader: React.FC<DashboardHeaderProps> = ({
+  isRefreshing, onRefresh, selectedTrader, onAnalyze, isAnalyzing, currentView, isScanning, onToggleScan, onClearHistory, scanStats, windowStartTime, isHeartbeating
 }) => {
   return (
     <header className="px-8 py-6 flex flex-col gap-4 border-b border-slate-800/50">
@@ -31,9 +32,9 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             {currentView === 'traders' ? (
               selectedTrader ? (
                 <>
-                  <img 
-                    src={selectedTrader.profile_image || `https://api.dicebear.com/7.x/identicon/svg?seed=${selectedTrader.address}`} 
-                    className="w-8 h-8 rounded-full" 
+                  <img
+                    src={selectedTrader.profile_image || `https://api.dicebear.com/7.x/identicon/svg?seed=${selectedTrader.address}`}
+                    className="w-8 h-8 rounded-full"
                     alt=""
                   />
                   {selectedTrader.username || 'Trader Detail'}
@@ -53,13 +54,19 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               </>
             )}
           </h2>
+          {currentView === 'scanner' && (
+            <p className="text-sm text-slate-400 mt-1 ml-11">Real-time identification of strategic low-cost entries with high conviction.</p>
+          )}
+          {currentView === 'traders' && !selectedTrader && (
+            <p className="text-sm text-slate-400 mt-1">Live feed of trades from all tracked Polymarket accounts.</p>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
           {currentView === 'traders' ? (
             <>
               {selectedTrader && (
-                <button 
+                <button
                   onClick={onAnalyze}
                   disabled={isAnalyzing}
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 text-white text-sm font-semibold rounded-lg transition-all shadow-lg"
@@ -67,7 +74,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                   {isAnalyzing ? 'Analyzing...' : 'AI Insights'}
                 </button>
               )}
-              <button 
+              <button
                 onClick={onRefresh}
                 disabled={isRefreshing}
                 className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg border border-slate-700"
@@ -76,15 +83,44 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               </button>
             </>
           ) : (
-            <button 
-              onClick={onToggleScan}
-              className={`flex items-center gap-2 px-4 py-2 ${isScanning ? 'bg-emerald-600' : 'bg-rose-600'} text-white text-sm font-semibold rounded-lg`}
-            >
-              {isScanning ? 'Monitoring Live...' : 'Resume Scanner'}
-            </button>
+            <>
+              <button
+                onClick={onClearHistory}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg border border-slate-700"
+              >
+                Clear History
+              </button>
+              <button
+                onClick={onToggleScan}
+                className={`flex items-center gap-2 px-4 py-2 ${isScanning ? 'bg-emerald-600' : 'bg-rose-600'} text-white text-sm font-semibold rounded-lg`}
+              >
+                {isScanning ? 'Monitoring Live...' : 'Resume Scanner'}
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {currentView === 'scanner' && scanStats && (
+        <div className="flex items-center gap-6 text-[11px] font-mono bg-slate-800/50 rounded-lg px-4 py-2.5 border border-slate-700/50">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 font-bold uppercase tracking-wider">Engine Status:</span>
+            <span className={`font-bold ${isScanning ? 'text-emerald-400' : 'text-rose-400'}`}>{isScanning ? 'ONLINE' : 'PAUSED'}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 font-bold uppercase tracking-wider">Processed:</span>
+            <span className="text-white font-bold">{scanStats.tradesChecked.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 font-bold uppercase tracking-wider">Potentials:</span>
+            <span className="text-emerald-400 font-bold">{scanStats.lowPriceMatches}</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-slate-500 font-bold uppercase tracking-wider">Latest Poll:</span>
+            <span className="text-amber-400 font-bold">{scanStats.lastScanTime || '--:--:--'}</span>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

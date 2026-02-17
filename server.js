@@ -21,7 +21,7 @@ let stats = {
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '.')));
+app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get('/api/whales', (req, res) => {
   res.json({ flaggedWhales, stats });
@@ -87,7 +87,7 @@ setInterval(runScanner, SCAN_INTERVAL);
 runScanner();
 
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 app.listen(PORT, () => {

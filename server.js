@@ -6,7 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const GLOBAL_WEBHOOK_URL = ""; 
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
 const SCAN_INTERVAL = 8000;
 const TRADES_LIMIT = 200;
 
@@ -27,6 +27,36 @@ app.get('/api/whales', (req, res) => {
   res.json({ flaggedWhales, stats });
 });
 
+async function sendDiscordAlert(whale) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  try {
+    const pnlEmoji = whale.pnl >= 0 ? '🟢' : '🔴';
+    const priceInCents = (whale.buy_price * 100).toFixed(0);
+    await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title: '🐋 Whale Detected',
+          color: 0x10b981,
+          fields: [
+            { name: 'Trader', value: whale.username || whale.address, inline: true },
+            { name: 'Entry Price', value: `${priceInCents}¢`, inline: true },
+            { name: 'Market', value: whale.market_title || 'Unknown', inline: false },
+            { name: `${pnlEmoji} PNL`, value: `$${whale.pnl.toLocaleString()}`, inline: true },
+            { name: 'Max Position', value: `$${whale.max_pos_value.toLocaleString()}`, inline: true },
+            { name: 'Positions', value: `${whale.pos_count} markets`, inline: true },
+          ],
+          footer: { text: 'Polymarket Whale Scanner' },
+          timestamp: new Date().toISOString()
+        }]
+      })
+    });
+  } catch (e) {
+    console.error('Discord webhook error:', e.message);
+  }
+}
+
 async function runScanner() {
   try {
     const res = await fetch(`https://data-api.polymarket.com/trades?limit=${TRADES_LIMIT}`);
@@ -37,7 +67,7 @@ async function runScanner() {
       const hash = t.transactionHash || `${t.user}-${t.timestamp}`;
       if (seenHashes.has(hash)) continue;
       seenHashes.add(hash);
-      
+
       if (seenHashes.size > 1000) seenHashes.clear();
 
       const price = parseFloat(t.price || 0);
@@ -52,7 +82,7 @@ async function runScanner() {
           const portRes = await fetch(`https://data-api.polymarket.com/portfolio?user=${userAddress}`);
           if (!portRes.ok) continue;
           const portData = await portRes.json();
-          
+
           const positions = portData.positions || [];
           const pnlValue = parseFloat(portData.pnl || 0);
           const maxPosValue = positions.reduce((max, p) => {
@@ -61,7 +91,7 @@ async function runScanner() {
           }, 0);
 
           if (positions.length < 6 && pnlValue < 30000 && pnlValue > -30000 && maxPosValue > 2000) {
-            flaggedWhales = [{
+            const whale = {
               id: hash,
               address: userAddress,
               username: t.name || t.pseudonym || 'Fresh Whale',
@@ -71,7 +101,9 @@ async function runScanner() {
               pnl: pnlValue,
               max_pos_value: maxPosValue,
               timestamp: new Date().toISOString()
-            }, ...flaggedWhales].slice(0, 100);
+            };
+            flaggedWhales = [whale, ...flaggedWhales].slice(0, 100);
+            await sendDiscordAlert(whale);
           }
         } catch (e) {}
       }

@@ -153,7 +153,21 @@ const App: React.FC = () => {
         onImport={() => fileInputRef.current?.click()}
         settings={settings}
         onSettingsChange={setSettings}
-        onTestNotification={() => {}}
+        onTestNotification={async () => {
+          setTestStatus('loading');
+          try {
+            const res = await fetch('/api/test-webhook', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ webhookUrl: settings.webhookUrl })
+            });
+            const data = await res.json();
+            setTestStatus(data.success ? 'success' : 'error');
+          } catch {
+            setTestStatus('error');
+          }
+          setTimeout(() => setTestStatus('idle'), 4000);
+        }}
         testStatus={testStatus}
         hasGlobalWebhook={!!GLOBAL_WEBHOOK_URL}
       />

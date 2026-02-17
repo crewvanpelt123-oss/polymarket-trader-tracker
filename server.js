@@ -27,6 +27,35 @@ app.get('/api/whales', (req, res) => {
   res.json({ flaggedWhales, stats });
 });
 
+app.post('/api/test-webhook', async (req, res) => {
+  const webhookUrl = req.body.webhookUrl || DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return res.json({ success: false, error: 'No webhook URL configured' });
+  }
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title: '🧪 Test Notification',
+          description: 'Your Polymarket Whale Scanner is connected and working!',
+          color: 0x10b981,
+          footer: { text: 'Polymarket Whale Scanner — Test Alert' },
+          timestamp: new Date().toISOString()
+        }]
+      })
+    });
+    if (response.ok) {
+      res.json({ success: true });
+    } else {
+      res.json({ success: false, error: `Discord returned ${response.status}` });
+    }
+  } catch (e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
 async function sendDiscordAlert(whale) {
   if (!DISCORD_WEBHOOK_URL) return;
   try {

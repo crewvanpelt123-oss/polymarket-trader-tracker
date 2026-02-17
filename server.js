@@ -110,14 +110,13 @@ async function runScanner() {
         if (!userAddress) continue;
 
         try {
-          const portRes = await fetch(`https://data-api.polymarket.com/portfolio?user=${userAddress}`);
+          const portRes = await fetch(`https://data-api.polymarket.com/positions?user=${userAddress}`);
           if (!portRes.ok) continue;
-          const portData = await portRes.json();
+          const positions = await portRes.json();
 
-          const positions = portData.positions || [];
-          const pnlValue = parseFloat(portData.pnl || 0);
+          const pnlValue = positions.reduce((sum, p) => sum + parseFloat(p.cashPnl || 0), 0);
           const maxPosValue = positions.reduce((max, p) => {
-            const val = parseFloat(p.size || 0) * parseFloat(p.price || 0);
+            const val = parseFloat(p.currentValue || 0);
             return val > max ? val : max;
           }, 0);
 

@@ -142,6 +142,7 @@ async function runScanner() {
             if (pnlValue <= -30000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
             if (maxPosValue <= 2000) failReasons.push(`Max position too small ($${maxPosValue.toFixed(2)})`);
             recentRejects = [{
+              address: userAddress,
               username: t.name || t.pseudonym || userAddress.slice(0, 10) + '...',
               market_title: title,
               buy_price: price,

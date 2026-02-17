@@ -2,6 +2,7 @@ import React from 'react';
 import { FlaggedUser } from '../types';
 
 interface RecentReject {
+  address?: string;
   username: string;
   market_title: string;
   buy_price: number;
@@ -83,7 +84,9 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
               return (
                 <tr key={user.id} className="hover:bg-slate-800/30 transition-colors group">
                   <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="font-semibold text-slate-200">{user.username || truncAddr(user.address)}</div>
+                    <a href={`https://polymarket.com/profile/${user.address}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-200 hover:text-indigo-400 transition-colors underline decoration-slate-700 hover:decoration-indigo-400">
+                      {user.username || truncAddr(user.address)}
+                    </a>
                     <div className="text-[10px] text-slate-500 font-mono mt-0.5">{formatTime(user.timestamp)}</div>
                   </td>
                   <td className="px-4 py-4">
@@ -153,7 +156,13 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
               <div key={i} className="bg-slate-800/30 rounded-lg border border-slate-800 px-4 py-3 flex items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-slate-300 truncate">{reject.username}</span>
+                    {reject.address ? (
+                      <a href={`https://polymarket.com/profile/${reject.address}`} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-slate-300 truncate hover:text-indigo-400 transition-colors underline decoration-slate-700 hover:decoration-indigo-400">
+                        {reject.username}
+                      </a>
+                    ) : (
+                      <span className="text-sm font-semibold text-slate-300 truncate">{reject.username}</span>
+                    )}
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">{(reject.buy_price * 100).toFixed(0)}c BUY</span>
                     <span className="text-[10px] text-slate-600 font-mono">{formatTime(reject.timestamp)}</span>
                   </div>

@@ -24,11 +24,12 @@ interface ScannerFeedProps {
   };
   windowStartTime?: string;
   onTrack?: (address: string, username?: string) => void;
+  onDismiss?: (id: string) => void;
   isAlreadyTracked?: (address: string) => boolean;
 }
 
 const ScannerFeed: React.FC<ScannerFeedProps> = ({
-  flaggedUsers, recentRejects = [], scanStats, windowStartTime, onTrack, isAlreadyTracked
+  flaggedUsers, recentRejects = [], scanStats, windowStartTime, onTrack, onDismiss, isAlreadyTracked
 }) => {
   const truncAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   const formatTime = (ts: string) => {
@@ -119,13 +120,22 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
                     </div>
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <button
-                      onClick={() => onTrack?.(user.address, user.username)}
-                      disabled={tracked}
-                      className={`px-3 py-1 text-[10px] font-bold rounded ${tracked ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 text-white'}`}
-                    >
-                      {tracked ? 'Tracked' : 'Track Trader'}
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => onTrack?.(user.address, user.username)}
+                        disabled={tracked}
+                        className={`px-3 py-1 text-[10px] font-bold rounded ${tracked ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 text-white'}`}
+                      >
+                        {tracked ? 'Tracked' : 'Track Trader'}
+                      </button>
+                      <button
+                        onClick={() => onDismiss?.(user.id)}
+                        className="px-2 py-1 text-[10px] font-bold rounded bg-slate-800 hover:bg-rose-600/20 text-slate-500 hover:text-rose-400 transition-colors border border-slate-700 hover:border-rose-500/30"
+                        title="Dismiss"
+                      >
+                        &times;
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

@@ -6,7 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
+let DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
 const SCAN_INTERVAL = 8000;
 const TRADES_LIMIT = 200;
 
@@ -25,7 +25,21 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get('/api/whales', (req, res) => {
-  res.json({ flaggedWhales, recentRejects, stats });
+  res.json({ flaggedWhales, recentRejects, stats, webhookUrl: DISCORD_WEBHOOK_URL });
+});
+
+app.post('/api/webhook-url', (req, res) => {
+  const url = req.body.webhookUrl || "";
+  DISCORD_WEBHOOK_URL = url;
+  console.log(`Webhook URL ${url ? 'updated' : 'cleared'}`);
+  res.json({ success: true, hasWebhook: !!url });
+});
+
+app.post('/api/dismiss-whale', (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.json({ success: false, error: 'No id provided' });
+  flaggedWhales = flaggedWhales.filter(w => w.id !== id);
+  res.json({ success: true, remaining: flaggedWhales.length });
 });
 
 app.post('/api/test-webhook', async (req, res) => {

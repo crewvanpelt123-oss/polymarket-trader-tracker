@@ -42,6 +42,17 @@ const App: React.FC = () => {
     lastScanTime: ''
   });
 
+  // Sync webhook URL to server whenever it changes
+  useEffect(() => {
+    if (settings.webhookUrl) {
+      fetch('/api/webhook-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhookUrl: settings.webhookUrl })
+      }).catch(() => {});
+    }
+  }, [settings.webhookUrl]);
+
   // FETCH WHALES FROM 24/7 SERVER
   useEffect(() => {
     const syncWithServer = async () => {
@@ -54,6 +65,10 @@ const App: React.FC = () => {
           setScanStats(data.stats);
           setIsHeartbeating(true);
           setTimeout(() => setIsHeartbeating(false), 800);
+          // If server has a webhook URL from env var and we don't have one locally, pick it up
+          if (data.webhookUrl && !settings.webhookUrl) {
+            setSettings(s => ({ ...s, webhookUrl: data.webhookUrl }));
+          }
         }
       } catch (e) {
         console.warn("Could not connect to backend scanner API");
@@ -85,6 +100,17 @@ const App: React.FC = () => {
     refreshData([newTrader, ...traders]);
     setCurrentView('traders');
     setSelectedTrader(address);
+  };
+
+  const dismissWhale = async (id: string) => {
+    setFlaggedUsers(prev => prev.filter(w => w.id !== id));
+    try {
+      await fetch('/api/dismiss-whale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+    } catch (e) {}
   };
 
   const removeTrader = (address: string) => {
@@ -202,7 +228,7 @@ const App: React.FC = () => {
           {currentView === 'traders' ? (
             <TradeFeed trades={selectedTrader ? trades.filter(t => t.trader_address === selectedTrader) : trades} />
           ) : (
-            <ScannerFeed flaggedUsers={flaggedUsers} recentRejects={recentRejects} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
+            <ScannerFeed flaggedUsers={flaggedUsers} recentRejects={recentRejects} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} onDismiss={dismissWhale} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
           )}
         </div>
       </main>

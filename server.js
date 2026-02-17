@@ -37,6 +37,7 @@ app.post('/api/test-webhook', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        content: '@everyone',
         embeds: [{
           title: '🧪 Test Notification',
           description: 'Your Polymarket Whale Scanner is connected and working!',
@@ -65,6 +66,7 @@ async function sendDiscordAlert(whale) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        content: '@everyone',
         embeds: [{
           title: '🐋 Whale Detected',
           color: 0x10b981,

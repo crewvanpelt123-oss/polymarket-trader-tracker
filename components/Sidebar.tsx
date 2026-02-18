@@ -69,7 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {traders.map((t) => (
                   <div key={t.address} className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm cursor-pointer border ${selectedTrader === t.address ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/20' : 'text-slate-400 border-transparent hover:bg-slate-900'}`} onClick={() => onSelect(t.address)}>
                     <img src={t.profile_image || `https://api.dicebear.com/7.x/identicon/svg?seed=${t.address}`} className="w-8 h-8 rounded-full bg-slate-800" alt="" />
-                    <div className="flex-1 min-w-0 truncate font-medium">{t.username || truncAddr(t.address)}</div>
+                    <a href={`https://polymarket.com/profile/${t.address}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0 truncate font-medium hover:text-indigo-400 hover:underline transition-colors">{t.username || truncAddr(t.address)}</a>
                     <button onClick={(e) => { e.stopPropagation(); onRemove(t.address); }} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                   </div>
                 ))}

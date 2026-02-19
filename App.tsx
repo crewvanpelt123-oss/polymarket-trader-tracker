@@ -258,6 +258,11 @@ const App: React.FC = () => {
           onToggleScan={() => setIsScanning(!isScanning)}
           onClearHistory={() => setFlaggedUsers([])}
           onClearClusters={() => setDetectedClusters([])}
+          onTestCluster={async () => {
+            try {
+              await fetch('/api/test-cluster', { method: 'POST' });
+            } catch (e) {}
+          }}
           scanStats={scanStats}
           clusterStats={clusterStats}
           windowStartTime={'Server Launch'}

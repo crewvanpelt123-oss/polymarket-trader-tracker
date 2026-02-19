@@ -12,6 +12,7 @@ interface DashboardHeaderProps {
   onToggleScan?: () => void;
   onClearHistory?: () => void;
   onClearClusters?: () => void;
+  onTestCluster?: () => void;
   scanStats?: {
     tradesChecked: number;
     lowPriceMatches: number;
@@ -24,7 +25,7 @@ interface DashboardHeaderProps {
 }
 
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({
-  isRefreshing, onRefresh, selectedTrader, onAnalyze, isAnalyzing, currentView, isScanning, onToggleScan, onClearHistory, onClearClusters, scanStats, clusterStats, windowStartTime, isHeartbeating
+  isRefreshing, onRefresh, selectedTrader, onAnalyze, isAnalyzing, currentView, isScanning, onToggleScan, onClearHistory, onClearClusters, onTestCluster, scanStats, clusterStats, windowStartTime, isHeartbeating
 }) => {
   return (
     <header className="px-8 py-6 flex flex-col gap-4 border-b border-slate-800/50">
@@ -114,6 +115,12 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             </>
           ) : (
             <>
+              <button
+                onClick={onTestCluster}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 text-sm font-semibold rounded-lg border border-indigo-500/30"
+              >
+                Test Alert
+              </button>
               <button
                 onClick={onClearClusters}
                 className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-lg border border-slate-700"

@@ -477,6 +477,44 @@ app.get('/api/clusters', (req, res) => {
   res.json({ detectedClusters, clusterStats });
 });
 
+app.post('/api/test-cluster', async (req, res) => {
+  const now = Math.floor(Date.now() / 1000);
+  const sharedFunder = '0xBinanceHot000000000000000000000000000001';
+  const testCluster = {
+    id: `test-cluster-${now}`,
+    conditionId: 'test-condition-abc123',
+    marketTitle: 'Will this coordinated Sybil attack be detected? (TEST)',
+    marketSlug: '',
+    wallets: [
+      { address: '0xaaa111', username: 'FreshWallet_A', price: 0.07, size: 45.00, timestamp: now - 15, transactionHash: 'hash1', isNewWallet: true,  fundingSource: sharedFunder },
+      { address: '0xbbb222', username: 'FreshWallet_B', price: 0.07, size: 52.00, timestamp: now - 12, transactionHash: 'hash2', isNewWallet: true,  fundingSource: sharedFunder },
+      { address: '0xccc333', username: 'FreshWallet_C', price: 0.08, size: 38.00, timestamp: now - 10, transactionHash: 'hash3', isNewWallet: true,  fundingSource: sharedFunder },
+      { address: '0xddd444', username: 'FreshWallet_D', price: 0.07, size: 61.00, timestamp: now - 8,  transactionHash: 'hash4', isNewWallet: true,  fundingSource: '0xOtherSource0000000000000000000000000002' },
+      { address: '0xeee555', username: 'OldWallet_E',   price: 0.08, size: 29.00, timestamp: now - 5,  transactionHash: 'hash5', isNewWallet: false, fundingSource: null },
+      { address: '0xfff666', username: 'FreshWallet_F', price: 0.07, size: 55.00, timestamp: now - 2,  transactionHash: 'hash6', isNewWallet: true,  fundingSource: sharedFunder },
+    ],
+    walletCount: 6,
+    newWalletCount: 5,
+    newWalletPct: 83.3,
+    totalVolume: 280.00,
+    timeSpreadSeconds: 13,
+    firstTradeTs: now - 15,
+    lastTradeTs: now - 2,
+    marketLiquidity: 1800,
+    marketVolume24hr: 2200,
+    signalStrength: 10,
+    isHighAlert: true,
+    sharedFundingSource: sharedFunder,
+    sharedFundingCount: 4,
+    detectedAt: new Date().toISOString(),
+  };
+  detectedClusters = [testCluster, ...detectedClusters].slice(0, 100);
+  clusterStats.totalDetected++;
+  clusterStats.highAlertCount++;
+  await sendClusterAlert(testCluster);
+  res.json({ success: true, cluster: testCluster });
+});
+
 app.post('/api/dismiss-cluster', (req, res) => {
   const { id } = req.body;
   dismissedClusterIds.add(id);

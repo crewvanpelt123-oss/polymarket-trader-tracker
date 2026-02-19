@@ -12,7 +12,10 @@ const TRADES_LIMIT = 200;
 
 let flaggedWhales = [];
 let recentRejects = [];
-let seenHashes = new Set();
+// Use a Map keyed by hash → insertion order index so we can evict the
+// oldest 200 entries instead of wiping everything at once.
+let seenHashes = new Map();
+let seenHashesCounter = 0;
 let stats = {
   tradesChecked: 0,
   lowPriceMatches: 0,
@@ -25,7 +28,9 @@ let clusterNearMisses = [];
 let dismissedClusterIds = new Set();
 let clusterStats = { totalDetected: 0, highAlertCount: 0, lastScanTime: '' };
 const clusterBuffer = new Map(); // conditionId -> trade[]
-let clusterSeenHashes = new Set();
+// Same sliding-window Map approach — evicts oldest 200 when cap hit
+let clusterSeenHashes = new Map();
+let clusterSeenHashesCounter = 0;
 
 const CLUSTER_INTERVAL = 10000;
 const CLUSTER_WINDOW_SEC = 120;
@@ -209,9 +214,15 @@ async function runScanner() {
     for (const t of recentTrades) {
       const hash = t.transactionHash || `${t.user}-${t.timestamp}`;
       if (seenHashes.has(hash)) continue;
-      seenHashes.add(hash);
-
-      if (seenHashes.size > 1000) seenHashes.clear();
+      seenHashes.set(hash, seenHashesCounter++);
+      // Evict the oldest 200 entries once we exceed 2000, never wipe all at once
+      if (seenHashes.size > 2000) {
+        const cutoff = seenHashesCounter - 2000;
+        for (const [h, idx] of seenHashes) {
+          if (idx < cutoff) seenHashes.delete(h);
+          else break;
+        }
+      }
 
       const price = parseFloat(t.price || 0);
       const title = t.title || "";
@@ -297,8 +308,15 @@ async function runClusterScanner() {
     for (const t of recentTrades) {
       const hash = t.transactionHash || `${t.user}-${t.timestamp}`;
       if (clusterSeenHashes.has(hash)) continue;
-      clusterSeenHashes.add(hash);
-      if (clusterSeenHashes.size > 2000) clusterSeenHashes.clear();
+      clusterSeenHashes.set(hash, clusterSeenHashesCounter++);
+      // Evict oldest 200 entries once we exceed 4000, never wipe all at once
+      if (clusterSeenHashes.size > 4000) {
+        const cutoff = clusterSeenHashesCounter - 4000;
+        for (const [h, idx] of clusterSeenHashes) {
+          if (idx < cutoff) clusterSeenHashes.delete(h);
+          else break;
+        }
+      }
 
       if (t.side !== 'BUY') continue;
       const price = parseFloat(t.price || 0);
@@ -361,57 +379,43 @@ async function runClusterScanner() {
       if (dismissedClusterIds.has(clusterId)) continue;
       if (detectedClusters.some(c => c.id === clusterId)) continue;
 
-      // Check newness of each wallet (same pattern as whale scanner)
-      const walletNewness = await Promise.all(
-        Array.from(walletMap.keys()).map(async (addr) => {
-          try {
-            const r = await fetch(`https://data-api.polymarket.com/positions?user=${addr}`);
-            if (!r.ok) return { addr, isNew: false };
-            const positions = await r.json();
-            return { addr, isNew: positions.length < 3 };
-          } catch {
-            return { addr, isNew: false };
-          }
-        })
-      );
+      // Run newness check and funding source check in parallel — shared funder
+      // is the strongest signal and must not be gated behind new-wallet %.
+      const [walletNewness, fundingResults] = await Promise.all([
+        Promise.all(
+          Array.from(walletMap.keys()).map(async (addr) => {
+            try {
+              const r = await fetch(`https://data-api.polymarket.com/positions?user=${addr}`);
+              if (!r.ok) return { addr, isNew: false };
+              const positions = await r.json();
+              return { addr, isNew: positions.length < 3 };
+            } catch {
+              return { addr, isNew: false };
+            }
+          })
+        ),
+        Promise.all(
+          Array.from(walletMap.keys()).map(async (addr) => {
+            try {
+              const r = await fetch(`https://data-api.polymarket.com/activity?user=${addr}&limit=50`);
+              if (!r.ok) return { addr, funder: null };
+              const activity = await r.json();
+              // Find the earliest USDC deposit — sender is the funding source
+              const deposits = (Array.isArray(activity) ? activity : [])
+                .filter(a => a.type === 'DEPOSIT' || a.type === 'TRANSFER_IN')
+                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+              const funder = deposits.length > 0 ? (deposits[0].from || deposits[0].sender || null) : null;
+              return { addr, funder };
+            } catch {
+              return { addr, funder: null };
+            }
+          })
+        )
+      ]);
 
       const newWalletCount = walletNewness.filter(w => w.isNew).length;
       const newWalletPct = (newWalletCount / walletMap.size) * 100;
-      if (newWalletPct < CLUSTER_NEW_WALLET_MIN_PCT) {
-        clusterNearMisses = [{
-          conditionId,
-          marketTitle: trades[0]?.title || conditionId,
-          marketSlug: trades[0]?.slug || '',
-          walletCount: walletMap.size,
-          newWalletPct,
-          totalVolume: Array.from(walletMap.values()).reduce((sum, tr) => sum + tr.size, 0),
-          timeSpreadSeconds: Math.max(...trades.map(tr => tr.timestamp)) - Math.min(...trades.map(tr => tr.timestamp)),
-          failReasons: [`New wallet % too low (${newWalletPct.toFixed(0)}% < ${CLUSTER_NEW_WALLET_MIN_PCT}%)`],
-          timestamp: new Date().toISOString(),
-        }, ...clusterNearMisses].slice(0, 5);
-        continue;
-      }
-
       const newnessMap = new Map(walletNewness.map(w => [w.addr, w.isNew]));
-
-      // Check common funding source — first inbound transfer on each wallet via activity feed
-      const fundingResults = await Promise.all(
-        Array.from(walletMap.keys()).map(async (addr) => {
-          try {
-            const r = await fetch(`https://data-api.polymarket.com/activity?user=${addr}&limit=50`);
-            if (!r.ok) return { addr, funder: null };
-            const activity = await r.json();
-            // Find the earliest USDC deposit — sender is the funding source
-            const deposits = (Array.isArray(activity) ? activity : [])
-              .filter(a => a.type === 'DEPOSIT' || a.type === 'TRANSFER_IN')
-              .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-            const funder = deposits.length > 0 ? (deposits[0].from || deposits[0].sender || null) : null;
-            return { addr, funder };
-          } catch {
-            return { addr, funder: null };
-          }
-        })
-      );
 
       // Count how many wallets share the same funder
       const funderCounts = new Map();
@@ -428,6 +432,23 @@ async function runClusterScanner() {
         }
       }
       const fundingMap = new Map(fundingResults.map(f => [f.addr, f.funder]));
+
+      // Apply the new-wallet % gate ONLY if the shared funder signal is weak.
+      // 3+ wallets sharing a funder is definitive coordination regardless of wallet age.
+      if (newWalletPct < CLUSTER_NEW_WALLET_MIN_PCT && sharedFundingCount < 3) {
+        clusterNearMisses = [{
+          conditionId,
+          marketTitle: trades[0]?.title || conditionId,
+          marketSlug: trades[0]?.slug || '',
+          walletCount: walletMap.size,
+          newWalletPct,
+          totalVolume: Array.from(walletMap.values()).reduce((sum, tr) => sum + tr.size, 0),
+          timeSpreadSeconds: Math.max(...trades.map(tr => tr.timestamp)) - Math.min(...trades.map(tr => tr.timestamp)),
+          failReasons: [`New wallet % too low (${newWalletPct.toFixed(0)}% < ${CLUSTER_NEW_WALLET_MIN_PCT}%) · no shared funder`],
+          timestamp: new Date().toISOString(),
+        }, ...clusterNearMisses].slice(0, 5);
+        continue;
+      }
 
       // Fetch market data
       let marketLiquidity = 0;

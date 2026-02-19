@@ -29,6 +29,15 @@ function HighAlertBadge() {
   );
 }
 
+function SharedFunderBadge({ count, address }: { count: number; address: string }) {
+  const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-orange-500/60 bg-orange-500/10 text-orange-400 text-[11px] font-bold">
+      ⚠️ Shared Funder ({count} wallets) · {short}
+    </span>
+  );
+}
+
 function StatPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col items-center px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 min-w-[72px]">
@@ -76,6 +85,9 @@ function ClusterCard({
         <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
           <SignalBadge score={cluster.signalStrength} />
           {cluster.isHighAlert && <HighAlertBadge />}
+          {cluster.sharedFundingSource && cluster.sharedFundingCount && (
+            <SharedFunderBadge count={cluster.sharedFundingCount} address={cluster.sharedFundingSource} />
+          )}
           <span className="text-[11px] text-slate-500 font-mono">{detectedTime}</span>
           <a
             href={polyLink}
@@ -130,11 +142,14 @@ function ClusterCard({
                 <th className="text-right pb-2 pr-3">Entry Price</th>
                 <th className="text-right pb-2 pr-3">Size</th>
                 <th className="text-left pb-2 pr-3">Type</th>
+                <th className="text-left pb-2 pr-3">Funder</th>
                 <th className="text-left pb-2"></th>
               </tr>
             </thead>
             <tbody>
-              {cluster.wallets.map((w) => (
+              {cluster.wallets.map((w) => {
+                const isSharedFunder = !!cluster.sharedFundingSource && w.fundingSource === cluster.sharedFundingSource;
+                return (
                 <tr key={w.address} className="border-b border-slate-800/50 hover:bg-slate-800/30">
                   <td className="py-1.5 pr-3">
                     <a
@@ -163,6 +178,15 @@ function ClusterCard({
                       </span>
                     )}
                   </td>
+                  <td className="py-1.5 pr-3">
+                    {w.fundingSource ? (
+                      <span className={`font-mono text-[10px] ${isSharedFunder ? 'text-orange-400 font-bold' : 'text-slate-500'}`}>
+                        {isSharedFunder && '⚠️ '}{w.fundingSource.slice(0, 6)}…{w.fundingSource.slice(-4)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-700 text-[10px]">—</span>
+                    )}
+                  </td>
                   <td className="py-1.5">
                     <button
                       onClick={() => onTrack(w.address, w.username)}
@@ -177,7 +201,8 @@ function ClusterCard({
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

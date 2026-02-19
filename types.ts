@@ -51,6 +51,7 @@ export interface ClusterWallet {
   timestamp: number;        // unix seconds
   transactionHash: string;
   isNewWallet: boolean;     // lifetime trades < 10
+  fundingSource?: string;   // first-ever funder address
 }
 
 export interface Cluster {
@@ -70,6 +71,8 @@ export interface Cluster {
   marketVolume24hr: number;
   signalStrength: number;   // 1–10
   isHighAlert: boolean;     // cluster volume > 10% of volume24hr
+  sharedFundingSource?: string;   // funder address shared by 3+ wallets
+  sharedFundingCount?: number;    // how many wallets share that source
   detectedAt: string;       // ISO
 }
 

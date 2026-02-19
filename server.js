@@ -86,15 +86,14 @@ app.post('/api/test-webhook', async (req, res) => {
   }
 });
 
-function computeSignalStrength({ walletCount, newWalletPct, totalVolume, marketLiquidity, timeSpreadSeconds }) {
+function computeSignalStrength({ walletCount, newWalletPct, totalVolume, marketLiquidity, timeSpreadSeconds, sharedFundingCount }) {
+  // --- Base score ---
   let score = 0;
-  // Wallet count: 3pts at 6 wallets, 4pts at 15+
-  if (walletCount >= 15) score += 4;
-  else if (walletCount >= 6) score += 3 + (walletCount - 6) / 9;
-  // New wallet %: 40%=1pt, 60%=2pts, 80%+=3pts
-  if (newWalletPct >= 80) score += 3;
-  else if (newWalletPct >= 60) score += 2;
-  else if (newWalletPct >= 40) score += 1;
+
+  // Wallet count: reduced weight (+2 max)
+  if (walletCount >= 15) score += 2;
+  else if (walletCount >= 6) score += 1 + (walletCount - 6) / 9;
+
   // Volume vs liquidity: >1%=1pt, >5%=2pts, >10%=3pts
   if (marketLiquidity > 0) {
     const ratio = (totalVolume / marketLiquidity) * 100;
@@ -102,9 +101,32 @@ function computeSignalStrength({ walletCount, newWalletPct, totalVolume, marketL
     else if (ratio > 5) score += 2;
     else if (ratio > 1) score += 1;
   }
-  // Time density bonus
-  if (timeSpreadSeconds <= 30) score += 1;
-  return Math.min(10, Math.max(1, Math.round(score)));
+
+  // Time density: harder to fake — +2 if all within 30s, +1 if within 60s
+  if (timeSpreadSeconds <= 30) score += 2;
+  else if (timeSpreadSeconds <= 60) score += 1;
+
+  // Common funding source: instant 10/10 if 3+ wallets share a funder
+  if (sharedFundingCount >= 3) return 10;
+
+  // --- New wallet % as multiplier ---
+  // Low fresh %: score × 0.5 (probably just news)
+  // Mid fresh %: score × 1.0
+  // High fresh %: score × 1.5, floor at 9 (Sybil indicator)
+  let multiplier = 1.0;
+  if (newWalletPct >= 80) {
+    multiplier = 1.5;
+    score = Math.max(score * multiplier, 9); // 80%+ fresh always >= 9
+    return Math.min(10, Math.round(score));
+  } else if (newWalletPct >= 60) {
+    multiplier = 1.25;
+  } else if (newWalletPct >= 40) {
+    multiplier = 1.0;
+  } else {
+    multiplier = 0.5; // low fresh % = likely organic news pop
+  }
+
+  return Math.min(10, Math.max(1, Math.round(score * multiplier)));
 }
 
 async function sendClusterAlert(cluster) {
@@ -129,6 +151,11 @@ async function sendClusterAlert(cluster) {
             { name: 'Cluster Vol', value: `$${cluster.totalVolume.toFixed(2)}`, inline: true },
             { name: 'vs 24hr Vol %', value: `${vol24hrPct}%`, inline: true },
             { name: 'Time Spread', value: `${cluster.timeSpreadSeconds}s`, inline: true },
+            ...(cluster.sharedFundingSource ? [{
+              name: `⚠️ Shared Funder (${cluster.sharedFundingCount} wallets)`,
+              value: `\`${cluster.sharedFundingSource.slice(0, 10)}...${cluster.sharedFundingSource.slice(-6)}\``,
+              inline: false
+            }] : []),
             { name: 'Polymarket', value: `[View Market](${polyLink})`, inline: false },
           ],
           footer: { text: 'Polymarket Cluster Scanner' },
@@ -337,6 +364,41 @@ async function runClusterScanner() {
 
       const newnessMap = new Map(walletNewness.map(w => [w.addr, w.isNew]));
 
+      // Check common funding source — first inbound transfer on each wallet via activity feed
+      const fundingResults = await Promise.all(
+        Array.from(walletMap.keys()).map(async (addr) => {
+          try {
+            const r = await fetch(`https://data-api.polymarket.com/activity?user=${addr}&limit=50`);
+            if (!r.ok) return { addr, funder: null };
+            const activity = await r.json();
+            // Find the earliest USDC deposit — sender is the funding source
+            const deposits = (Array.isArray(activity) ? activity : [])
+              .filter(a => a.type === 'DEPOSIT' || a.type === 'TRANSFER_IN')
+              .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            const funder = deposits.length > 0 ? (deposits[0].from || deposits[0].sender || null) : null;
+            return { addr, funder };
+          } catch {
+            return { addr, funder: null };
+          }
+        })
+      );
+
+      // Count how many wallets share the same funder
+      const funderCounts = new Map();
+      for (const { funder } of fundingResults) {
+        if (!funder) continue;
+        funderCounts.set(funder, (funderCounts.get(funder) || 0) + 1);
+      }
+      let sharedFundingSource = null;
+      let sharedFundingCount = 0;
+      for (const [funder, count] of funderCounts.entries()) {
+        if (count > sharedFundingCount) {
+          sharedFundingCount = count;
+          sharedFundingSource = funder;
+        }
+      }
+      const fundingMap = new Map(fundingResults.map(f => [f.addr, f.funder]));
+
       // Fetch market data
       let marketLiquidity = 0;
       let marketVolume24hr = 0;
@@ -360,8 +422,8 @@ async function runClusterScanner() {
       const timeSpreadSeconds = lastTradeTs - firstTradeTs;
       const totalVolume = Array.from(walletMap.values()).reduce((sum, tr) => sum + tr.size, 0);
       const walletCount = walletMap.size;
-      const signalStrength = computeSignalStrength({ walletCount, newWalletPct, totalVolume, marketLiquidity, timeSpreadSeconds });
-      const isHighAlert = marketVolume24hr > 0 && (totalVolume / marketVolume24hr) > 0.10;
+      const signalStrength = computeSignalStrength({ walletCount, newWalletPct, totalVolume, marketLiquidity, timeSpreadSeconds, sharedFundingCount });
+      const isHighAlert = signalStrength >= 9 || (marketVolume24hr > 0 && (totalVolume / marketVolume24hr) > 0.10);
 
       const wallets = Array.from(walletMap.entries()).map(([addr, tr]) => ({
         address: addr,
@@ -371,6 +433,7 @@ async function runClusterScanner() {
         timestamp: tr.timestamp,
         transactionHash: tr.transactionHash,
         isNewWallet: newnessMap.get(addr) || false,
+        fundingSource: fundingMap.get(addr) || undefined,
       }));
 
       const cluster = {
@@ -390,6 +453,8 @@ async function runClusterScanner() {
         marketVolume24hr,
         signalStrength,
         isHighAlert,
+        sharedFundingSource: sharedFundingSource || undefined,
+        sharedFundingCount: sharedFundingCount || undefined,
         detectedAt: new Date().toISOString(),
       };
 

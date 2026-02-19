@@ -8,8 +8,8 @@ interface SidebarProps {
   selectedTrader: string | null;
   onSelect: (address: string | null) => void;
   stats: Stats;
-  currentView: 'traders' | 'scanner';
-  onViewChange: (view: 'traders' | 'scanner') => void;
+  currentView: 'traders' | 'scanner' | 'clusters';
+  onViewChange: (view: 'traders' | 'scanner' | 'clusters') => void;
   onExport?: () => void;
   onImport?: () => void;
   settings: {
@@ -23,7 +23,7 @@ interface SidebarProps {
   hasGlobalWebhook?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ 
+const Sidebar: React.FC<SidebarProps> = ({
   traders, onAdd, onRemove, selectedTrader, onSelect, stats, currentView, onViewChange, onExport, onImport,
   settings, onSettingsChange, onTestNotification, testStatus = 'idle', hasGlobalWebhook
 }) => {
@@ -45,10 +45,22 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex p-1 bg-slate-900 rounded-xl border border-slate-800 mb-8">
           <button onClick={() => onViewChange('traders')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${currentView === 'traders' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500'}`}>Monitor</button>
           <button onClick={() => onViewChange('scanner')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${currentView === 'scanner' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500'}`}>Scanner</button>
+          <button onClick={() => onViewChange('clusters')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${currentView === 'clusters' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500'}`}>Clusters</button>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-          {currentView === 'traders' ? (
+          {currentView === 'clusters' ? (
+            <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800 mb-6">
+              <h3 className="text-xs font-bold text-emerald-500 mb-2 uppercase">Cluster Logic</h3>
+              <ul className="text-[10px] text-slate-400 space-y-2">
+                <li className="flex justify-between"><span>• Min Wallets:</span> <span className="text-white">6 unique</span></li>
+                <li className="flex justify-between"><span>• Price Range:</span> <span className="text-white">2¢ – 20¢</span></li>
+                <li className="flex justify-between"><span>• Window:</span> <span className="text-white">120 seconds</span></li>
+                <li className="flex justify-between"><span>• Sybil Min %:</span> <span className="text-white">40% new wallets</span></li>
+                <li className="flex justify-between"><span>• High Alert:</span> <span className="text-white">&gt;10% of 24h vol</span></li>
+              </ul>
+            </div>
+          ) : currentView === 'traders' ? (
             <>
               <form onSubmit={(e) => { e.preventDefault(); if(input) onAdd(input); setInput(''); }} className="mb-6">
                 <label className="block text-[10px] font-bold text-slate-600 uppercase mb-2">Track New Address</label>

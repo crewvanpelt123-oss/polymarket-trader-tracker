@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trader, Trade, FlaggedUser } from './types';
+import { Trader, Trade, FlaggedUser, Cluster, ClusterStats } from './types';
 import Sidebar from './components/Sidebar';
 import TradeFeed from './components/TradeFeed';
 import ScannerFeed from './components/ScannerFeed';
+import ClusterFeed from './components/ClusterFeed';
 import DashboardHeader from './components/DashboardHeader';
 import { analyzeTraderStrategy } from './services/gemini';
 
@@ -15,7 +16,7 @@ const TRADES_STORAGE_KEY = 'poly_tracker_trades_cache';
 const SETTINGS_STORAGE_KEY = 'poly_tracker_settings';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<'traders' | 'scanner'>('traders');
+  const [currentView, setCurrentView] = useState<'traders' | 'scanner' | 'clusters'>('traders');
   const [traders, setTraders] = useState<Trader[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [flaggedUsers, setFlaggedUsers] = useState<FlaggedUser[]>([]);
@@ -39,6 +40,13 @@ const App: React.FC = () => {
     tradesChecked: 0,
     lowPriceMatches: 0,
     excludedMarkets: 0,
+    lastScanTime: ''
+  });
+
+  const [detectedClusters, setDetectedClusters] = useState<Cluster[]>([]);
+  const [clusterStats, setClusterStats] = useState<ClusterStats>({
+    totalDetected: 0,
+    highAlertCount: 0,
     lastScanTime: ''
   });
 
@@ -80,6 +88,25 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // FETCH CLUSTERS FROM 24/7 SERVER
+  useEffect(() => {
+    const syncClusters = async () => {
+      try {
+        const res = await fetch('/api/clusters');
+        if (res.ok) {
+          const data = await res.json();
+          setDetectedClusters(data.detectedClusters);
+          setClusterStats(data.clusterStats);
+        }
+      } catch (e) {
+        console.warn('Could not connect to cluster API');
+      }
+    };
+    const interval = setInterval(syncClusters, 8000);
+    syncClusters();
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     const savedTraders = localStorage.getItem(STORAGE_KEY);
     if (savedTraders) setTraders(JSON.parse(savedTraders));
@@ -106,6 +133,17 @@ const App: React.FC = () => {
     setFlaggedUsers(prev => prev.filter(w => w.id !== id));
     try {
       await fetch('/api/dismiss-whale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+    } catch (e) {}
+  };
+
+  const dismissCluster = async (id: string) => {
+    setDetectedClusters(prev => prev.filter(c => c.id !== id));
+    try {
+      await fetch('/api/dismiss-cluster', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
@@ -219,7 +257,9 @@ const App: React.FC = () => {
           isScanning={isScanning}
           onToggleScan={() => setIsScanning(!isScanning)}
           onClearHistory={() => setFlaggedUsers([])}
+          onClearClusters={() => setDetectedClusters([])}
           scanStats={scanStats}
+          clusterStats={clusterStats}
           windowStartTime={'Server Launch'}
           isHeartbeating={isHeartbeating}
         />
@@ -227,8 +267,10 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-8 custom-scrollbar">
           {currentView === 'traders' ? (
             <TradeFeed trades={selectedTrader ? trades.filter(t => t.trader_address === selectedTrader) : trades} />
-          ) : (
+          ) : currentView === 'scanner' ? (
             <ScannerFeed flaggedUsers={flaggedUsers} recentRejects={recentRejects} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} onDismiss={dismissWhale} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
+          ) : (
+            <ClusterFeed clusters={detectedClusters} clusterStats={clusterStats} onDismiss={dismissCluster} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
           )}
         </div>
       </main>

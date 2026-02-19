@@ -20,6 +20,20 @@ let stats = {
   lastScanTime: ''
 };
 
+let detectedClusters = [];
+let dismissedClusterIds = new Set();
+let clusterStats = { totalDetected: 0, highAlertCount: 0, lastScanTime: '' };
+const clusterBuffer = new Map(); // conditionId -> trade[]
+let clusterSeenHashes = new Set();
+
+const CLUSTER_INTERVAL = 10000;
+const CLUSTER_WINDOW_SEC = 120;
+const CLUSTER_MIN_WALLETS = 6;
+const CLUSTER_PRICE_MIN = 0.02;
+const CLUSTER_PRICE_MAX = 0.20;
+const CLUSTER_NEW_WALLET_THRESHOLD = 10;
+const CLUSTER_NEW_WALLET_MIN_PCT = 40;
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -72,6 +86,61 @@ app.post('/api/test-webhook', async (req, res) => {
   }
 });
 
+function computeSignalStrength({ walletCount, newWalletPct, totalVolume, marketLiquidity, timeSpreadSeconds }) {
+  let score = 0;
+  // Wallet count: 3pts at 6 wallets, 4pts at 15+
+  if (walletCount >= 15) score += 4;
+  else if (walletCount >= 6) score += 3 + (walletCount - 6) / 9;
+  // New wallet %: 40%=1pt, 60%=2pts, 80%+=3pts
+  if (newWalletPct >= 80) score += 3;
+  else if (newWalletPct >= 60) score += 2;
+  else if (newWalletPct >= 40) score += 1;
+  // Volume vs liquidity: >1%=1pt, >5%=2pts, >10%=3pts
+  if (marketLiquidity > 0) {
+    const ratio = (totalVolume / marketLiquidity) * 100;
+    if (ratio > 10) score += 3;
+    else if (ratio > 5) score += 2;
+    else if (ratio > 1) score += 1;
+  }
+  // Time density bonus
+  if (timeSpreadSeconds <= 30) score += 1;
+  return Math.min(10, Math.max(1, Math.round(score)));
+}
+
+async function sendClusterAlert(cluster) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  try {
+    const color = cluster.signalStrength >= 7 ? 0x10b981 : cluster.signalStrength >= 4 ? 0xf59e0b : 0xf43f5e;
+    const vol24hrPct = cluster.marketVolume24hr > 0 ? ((cluster.totalVolume / cluster.marketVolume24hr) * 100).toFixed(1) : 'N/A';
+    const polyLink = cluster.marketSlug ? `https://polymarket.com/event/${cluster.marketSlug}` : 'https://polymarket.com';
+    await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: cluster.isHighAlert ? '@everyone' : '',
+        embeds: [{
+          title: `🔵 Cluster Detected${cluster.isHighAlert ? ' — 🚨 HIGH ALERT' : ''}`,
+          color,
+          fields: [
+            { name: 'Market', value: cluster.marketTitle || 'Unknown', inline: false },
+            { name: 'Signal Strength', value: `${cluster.signalStrength}/10`, inline: true },
+            { name: 'Wallets', value: `${cluster.walletCount}`, inline: true },
+            { name: 'New Wallets %', value: `${cluster.newWalletPct.toFixed(0)}%`, inline: true },
+            { name: 'Cluster Vol', value: `$${cluster.totalVolume.toFixed(2)}`, inline: true },
+            { name: 'vs 24hr Vol %', value: `${vol24hrPct}%`, inline: true },
+            { name: 'Time Spread', value: `${cluster.timeSpreadSeconds}s`, inline: true },
+            { name: 'Polymarket', value: `[View Market](${polyLink})`, inline: false },
+          ],
+          footer: { text: 'Polymarket Cluster Scanner' },
+          timestamp: new Date().toISOString()
+        }]
+      })
+    });
+  } catch (e) {
+    console.error('Discord cluster webhook error:', e.message);
+  }
+}
+
 async function sendDiscordAlert(whale) {
   if (!DISCORD_WEBHOOK_URL) return;
   try {
@@ -118,6 +187,14 @@ async function runScanner() {
 
       const price = parseFloat(t.price || 0);
       const title = t.title || "";
+
+      const CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
+      const isCryptoMarket = CRYPTO_KEYWORDS.some(kw => title.toLowerCase().includes(kw));
+
+      if (isCryptoMarket) {
+        stats.excludedMarkets++;
+        continue;
+      }
 
       if (t.side === 'BUY' && price <= 0.20) {
         stats.lowPriceMatches++;
@@ -179,6 +256,168 @@ async function runScanner() {
 
 setInterval(runScanner, SCAN_INTERVAL);
 runScanner();
+
+async function runClusterScanner() {
+  try {
+    const CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
+    const res = await fetch(`https://data-api.polymarket.com/trades?limit=200`);
+    if (!res.ok) return;
+    const recentTrades = await res.json();
+
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    for (const t of recentTrades) {
+      const hash = t.transactionHash || `${t.user}-${t.timestamp}`;
+      if (clusterSeenHashes.has(hash)) continue;
+      clusterSeenHashes.add(hash);
+      if (clusterSeenHashes.size > 2000) clusterSeenHashes.clear();
+
+      if (t.side !== 'BUY') continue;
+      const price = parseFloat(t.price || 0);
+      if (price < CLUSTER_PRICE_MIN || price > CLUSTER_PRICE_MAX) continue;
+      const title = t.title || '';
+      if (CRYPTO_KEYWORDS.some(kw => title.toLowerCase().includes(kw))) continue;
+
+      const conditionId = t.conditionId;
+      if (!conditionId) continue;
+
+      if (!clusterBuffer.has(conditionId)) clusterBuffer.set(conditionId, []);
+      clusterBuffer.get(conditionId).push({
+        user: t.proxyWallet || t.user,
+        username: t.name || t.pseudonym || '',
+        price,
+        size: parseFloat(t.size || 0),
+        timestamp: t.timestamp || nowSec,
+        transactionHash: hash,
+        title,
+        slug: t.slug,
+      });
+    }
+
+    // Purge entries older than CLUSTER_WINDOW_SEC
+    for (const [condId, trades] of clusterBuffer.entries()) {
+      const fresh = trades.filter(tr => (nowSec - tr.timestamp) <= CLUSTER_WINDOW_SEC);
+      if (fresh.length === 0) clusterBuffer.delete(condId);
+      else clusterBuffer.set(condId, fresh);
+    }
+
+    // Evaluate each conditionId for cluster
+    for (const [conditionId, trades] of clusterBuffer.entries()) {
+      // Deduplicate by wallet
+      const walletMap = new Map();
+      for (const tr of trades) {
+        if (!tr.user) continue;
+        if (!walletMap.has(tr.user)) walletMap.set(tr.user, tr);
+      }
+      if (walletMap.size < CLUSTER_MIN_WALLETS) continue;
+
+      const firstTradeTs = Math.min(...trades.map(tr => tr.timestamp));
+      const clusterId = `${conditionId}-${firstTradeTs}`;
+
+      if (dismissedClusterIds.has(clusterId)) continue;
+      if (detectedClusters.some(c => c.id === clusterId)) continue;
+
+      // Check newness of each wallet (same pattern as whale scanner)
+      const walletNewness = await Promise.all(
+        Array.from(walletMap.keys()).map(async (addr) => {
+          try {
+            const r = await fetch(`https://data-api.polymarket.com/positions?user=${addr}`);
+            if (!r.ok) return { addr, isNew: false };
+            const positions = await r.json();
+            return { addr, isNew: positions.length < 3 };
+          } catch {
+            return { addr, isNew: false };
+          }
+        })
+      );
+
+      const newWalletCount = walletNewness.filter(w => w.isNew).length;
+      const newWalletPct = (newWalletCount / walletMap.size) * 100;
+      if (newWalletPct < CLUSTER_NEW_WALLET_MIN_PCT) continue;
+
+      const newnessMap = new Map(walletNewness.map(w => [w.addr, w.isNew]));
+
+      // Fetch market data
+      let marketLiquidity = 0;
+      let marketVolume24hr = 0;
+      let marketTitle = trades[0]?.title || '';
+      let marketSlug = trades[0]?.slug || '';
+      try {
+        const mRes = await fetch(`https://gamma-api.polymarket.com/markets?conditionId=${conditionId}`);
+        if (mRes.ok) {
+          const mData = await mRes.json();
+          const market = Array.isArray(mData) ? mData[0] : mData;
+          if (market) {
+            marketLiquidity = parseFloat(market.liquidityNum || market.liquidity || 0);
+            marketVolume24hr = parseFloat(market.volume24hr || 0);
+            marketTitle = market.question || marketTitle;
+            marketSlug = market.slug || marketSlug;
+          }
+        }
+      } catch {}
+
+      const lastTradeTs = Math.max(...trades.map(tr => tr.timestamp));
+      const timeSpreadSeconds = lastTradeTs - firstTradeTs;
+      const totalVolume = Array.from(walletMap.values()).reduce((sum, tr) => sum + tr.size, 0);
+      const walletCount = walletMap.size;
+      const signalStrength = computeSignalStrength({ walletCount, newWalletPct, totalVolume, marketLiquidity, timeSpreadSeconds });
+      const isHighAlert = marketVolume24hr > 0 && (totalVolume / marketVolume24hr) > 0.10;
+
+      const wallets = Array.from(walletMap.entries()).map(([addr, tr]) => ({
+        address: addr,
+        username: tr.username,
+        price: tr.price,
+        size: tr.size,
+        timestamp: tr.timestamp,
+        transactionHash: tr.transactionHash,
+        isNewWallet: newnessMap.get(addr) || false,
+      }));
+
+      const cluster = {
+        id: clusterId,
+        conditionId,
+        marketTitle,
+        marketSlug,
+        wallets,
+        walletCount,
+        newWalletCount,
+        newWalletPct,
+        totalVolume,
+        timeSpreadSeconds,
+        firstTradeTs,
+        lastTradeTs,
+        marketLiquidity,
+        marketVolume24hr,
+        signalStrength,
+        isHighAlert,
+        detectedAt: new Date().toISOString(),
+      };
+
+      detectedClusters = [cluster, ...detectedClusters].slice(0, 100);
+      clusterStats.totalDetected++;
+      if (isHighAlert) clusterStats.highAlertCount++;
+      await sendClusterAlert(cluster);
+    }
+
+    clusterStats.lastScanTime = new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
+  } catch (err) {
+    console.error('Cluster Scanner Loop Error:', err);
+  }
+}
+
+setInterval(runClusterScanner, CLUSTER_INTERVAL);
+runClusterScanner();
+
+app.get('/api/clusters', (req, res) => {
+  res.json({ detectedClusters, clusterStats });
+});
+
+app.post('/api/dismiss-cluster', (req, res) => {
+  const { id } = req.body;
+  dismissedClusterIds.add(id);
+  detectedClusters = detectedClusters.filter(c => c.id !== id);
+  res.json({ success: true });
+});
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));

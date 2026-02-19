@@ -42,3 +42,39 @@ export interface FlaggedUser {
   max_pos_value: number;
   timestamp: string;
 }
+
+export interface ClusterWallet {
+  address: string;
+  username: string;
+  price: number;
+  size: number;
+  timestamp: number;        // unix seconds
+  transactionHash: string;
+  isNewWallet: boolean;     // lifetime trades < 10
+}
+
+export interface Cluster {
+  id: string;               // `${conditionId}-${firstTradeTs}`
+  conditionId: string;
+  marketTitle: string;
+  marketSlug: string;
+  wallets: ClusterWallet[];
+  walletCount: number;
+  newWalletCount: number;
+  newWalletPct: number;     // 0–100
+  totalVolume: number;
+  timeSpreadSeconds: number;
+  firstTradeTs: number;
+  lastTradeTs: number;
+  marketLiquidity: number;
+  marketVolume24hr: number;
+  signalStrength: number;   // 1–10
+  isHighAlert: boolean;     // cluster volume > 10% of volume24hr
+  detectedAt: string;       // ISO
+}
+
+export interface ClusterStats {
+  totalDetected: number;
+  highAlertCount: number;
+  lastScanTime: string;
+}

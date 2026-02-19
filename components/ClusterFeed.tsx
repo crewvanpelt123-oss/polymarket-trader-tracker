@@ -1,8 +1,21 @@
 import React, { useState } from 'react';
 import { Cluster, ClusterStats } from '../types';
 
+interface ClusterNearMiss {
+  conditionId: string;
+  marketTitle: string;
+  marketSlug: string;
+  walletCount: number;
+  newWalletPct: number;
+  totalVolume: number;
+  timeSpreadSeconds: number;
+  failReasons: string[];
+  timestamp: string;
+}
+
 interface ClusterFeedProps {
   clusters: Cluster[];
+  clusterNearMisses?: ClusterNearMiss[];
   clusterStats: ClusterStats;
   onDismiss: (id: string) => void;
   onTrack: (address: string, username?: string) => void;
@@ -213,11 +226,16 @@ function ClusterCard({
 
 const ClusterFeed: React.FC<ClusterFeedProps> = ({
   clusters,
+  clusterNearMisses = [],
   clusterStats,
   onDismiss,
   onTrack,
   isAlreadyTracked,
 }) => {
+  const formatTime = (ts: string) => {
+    const d = new Date(ts);
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+  };
   if (clusters.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4 text-slate-500">
@@ -239,6 +257,65 @@ const ClusterFeed: React.FC<ClusterFeedProps> = ({
           isAlreadyTracked={isAlreadyTracked}
         />
       ))}
+
+      {clusterNearMisses.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Recent Near-Misses</h3>
+          <div className="space-y-2">
+            {clusterNearMisses.map((miss, i) => {
+              const polyLink = miss.marketSlug
+                ? `https://polymarket.com/event/${miss.marketSlug}`
+                : 'https://polymarket.com';
+              const timeStr =
+                miss.timeSpreadSeconds < 60
+                  ? `${miss.timeSpreadSeconds}s`
+                  : `${Math.floor(miss.timeSpreadSeconds / 60)}m ${miss.timeSpreadSeconds % 60}s`;
+              return (
+                <div key={i} className="bg-slate-800/30 rounded-lg border border-slate-800 px-4 py-3 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={polyLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-semibold text-slate-300 truncate hover:text-indigo-400 transition-colors underline decoration-slate-700 hover:decoration-indigo-400"
+                      >
+                        {miss.marketTitle || miss.conditionId}
+                      </a>
+                      <span className="text-[10px] text-slate-600 font-mono">{formatTime(miss.timestamp)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] shrink-0">
+                    <div className="text-center">
+                      <div className="text-slate-600 font-bold uppercase">Wallets</div>
+                      <div className="text-slate-400">{miss.walletCount}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-slate-600 font-bold uppercase">New %</div>
+                      <div className="text-slate-400">{miss.newWalletPct.toFixed(0)}%</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-slate-600 font-bold uppercase">Vol</div>
+                      <div className="text-indigo-400">${miss.totalVolume.toFixed(0)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-slate-600 font-bold uppercase">Spread</div>
+                      <div className="text-slate-400">{timeStr}</div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1 shrink-0 max-w-[200px]">
+                    {miss.failReasons.map((reason: string, j: number) => (
+                      <span key={j} className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 font-medium">
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

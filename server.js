@@ -21,6 +21,7 @@ let stats = {
 };
 
 let detectedClusters = [];
+let clusterNearMisses = [];
 let dismissedClusterIds = new Set();
 let clusterStats = { totalDetected: 0, highAlertCount: 0, lastScanTime: '' };
 const clusterBuffer = new Map(); // conditionId -> trade[]
@@ -336,7 +337,23 @@ async function runClusterScanner() {
         if (!tr.user) continue;
         if (!walletMap.has(tr.user)) walletMap.set(tr.user, tr);
       }
-      if (walletMap.size < CLUSTER_MIN_WALLETS) continue;
+      if (walletMap.size < CLUSTER_MIN_WALLETS) {
+        if (walletMap.size >= 3) {
+          // Near-miss: close to threshold but not enough wallets
+          clusterNearMisses = [{
+            conditionId,
+            marketTitle: trades[0]?.title || conditionId,
+            marketSlug: trades[0]?.slug || '',
+            walletCount: walletMap.size,
+            newWalletPct: 0,
+            totalVolume: Array.from(walletMap.values()).reduce((sum, tr) => sum + tr.size, 0),
+            timeSpreadSeconds: Math.max(...trades.map(tr => tr.timestamp)) - Math.min(...trades.map(tr => tr.timestamp)),
+            failReasons: [`Only ${walletMap.size} wallets (need ${CLUSTER_MIN_WALLETS})`],
+            timestamp: new Date().toISOString(),
+          }, ...clusterNearMisses].slice(0, 5);
+        }
+        continue;
+      }
 
       const firstTradeTs = Math.min(...trades.map(tr => tr.timestamp));
       const clusterId = `${conditionId}-${firstTradeTs}`;
@@ -360,7 +377,20 @@ async function runClusterScanner() {
 
       const newWalletCount = walletNewness.filter(w => w.isNew).length;
       const newWalletPct = (newWalletCount / walletMap.size) * 100;
-      if (newWalletPct < CLUSTER_NEW_WALLET_MIN_PCT) continue;
+      if (newWalletPct < CLUSTER_NEW_WALLET_MIN_PCT) {
+        clusterNearMisses = [{
+          conditionId,
+          marketTitle: trades[0]?.title || conditionId,
+          marketSlug: trades[0]?.slug || '',
+          walletCount: walletMap.size,
+          newWalletPct,
+          totalVolume: Array.from(walletMap.values()).reduce((sum, tr) => sum + tr.size, 0),
+          timeSpreadSeconds: Math.max(...trades.map(tr => tr.timestamp)) - Math.min(...trades.map(tr => tr.timestamp)),
+          failReasons: [`New wallet % too low (${newWalletPct.toFixed(0)}% < ${CLUSTER_NEW_WALLET_MIN_PCT}%)`],
+          timestamp: new Date().toISOString(),
+        }, ...clusterNearMisses].slice(0, 5);
+        continue;
+      }
 
       const newnessMap = new Map(walletNewness.map(w => [w.addr, w.isNew]));
 
@@ -474,7 +504,7 @@ setInterval(runClusterScanner, CLUSTER_INTERVAL);
 runClusterScanner();
 
 app.get('/api/clusters', (req, res) => {
-  res.json({ detectedClusters, clusterStats });
+  res.json({ detectedClusters, clusterNearMisses, clusterStats });
 });
 
 app.post('/api/test-cluster', async (req, res) => {

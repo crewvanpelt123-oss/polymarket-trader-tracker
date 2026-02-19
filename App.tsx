@@ -44,6 +44,7 @@ const App: React.FC = () => {
   });
 
   const [detectedClusters, setDetectedClusters] = useState<Cluster[]>([]);
+  const [clusterNearMisses, setClusterNearMisses] = useState<any[]>([]);
   const [clusterStats, setClusterStats] = useState<ClusterStats>({
     totalDetected: 0,
     highAlertCount: 0,
@@ -96,6 +97,7 @@ const App: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           setDetectedClusters(data.detectedClusters);
+          setClusterNearMisses(data.clusterNearMisses || []);
           setClusterStats(data.clusterStats);
         }
       } catch (e) {
@@ -275,7 +277,7 @@ const App: React.FC = () => {
           ) : currentView === 'scanner' ? (
             <ScannerFeed flaggedUsers={flaggedUsers} recentRejects={recentRejects} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} onDismiss={dismissWhale} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
           ) : (
-            <ClusterFeed clusters={detectedClusters} clusterStats={clusterStats} onDismiss={dismissCluster} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
+            <ClusterFeed clusters={detectedClusters} clusterNearMisses={clusterNearMisses} clusterStats={clusterStats} onDismiss={dismissCluster} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
           )}
         </div>
       </main>

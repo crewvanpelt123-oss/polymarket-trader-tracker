@@ -183,8 +183,9 @@ async function updateHypoPositions() {
       }
     } catch {}
 
-    // Update 6hr peak
-    if (ageMs <= 6 * 60 * 60 * 1000 && pos.current_price > pos.peak_price_6hr) {
+    // Update 6hr peak — always track if current price beats it, regardless of age.
+    // The 6hr window only applies to what we *display*, not to whether we record it.
+    if (pos.current_price > pos.peak_price_6hr) {
       pos.peak_price_6hr = pos.current_price;
     }
 

@@ -51,8 +51,13 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
       ? ((( isClosed ? (pos.exit_price || pos.entry_price) : pos.current_price) - pos.entry_price) / pos.entry_price) * 100
       : 0;
 
-    const peakReturn    = (pos.peak_price_6hr - pos.entry_price) * pos.shares;
-    const peakReturnPct = pos.entry_price > 0 ? ((pos.peak_price_6hr - pos.entry_price) / pos.entry_price) * 100 : 0;
+    // For closed positions, peak should be at least the exit price — if we never
+    // recorded a price higher than entry (server was catching up), fall back to exit_price.
+    const effectivePeak = isClosed
+      ? Math.max(pos.peak_price_6hr, pos.exit_price || pos.entry_price)
+      : pos.peak_price_6hr;
+    const peakReturn    = (effectivePeak - pos.entry_price) * pos.shares;
+    const peakReturnPct = pos.entry_price > 0 ? ((effectivePeak - pos.entry_price) / pos.entry_price) * 100 : 0;
 
     const polyLink = pos.market_slug
       ? `https://polymarket.com/event/${pos.market_slug}`
@@ -142,7 +147,7 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
                 {peakReturn >= 0 ? '+' : ''}${peakReturn.toFixed(2)}
               </div>
               <div className="text-[10px] font-mono text-slate-500">
-                {peakReturnPct >= 0 ? '+' : ''}{peakReturnPct.toFixed(1)}% · {(pos.peak_price_6hr * 100).toFixed(0)}¢
+                {peakReturnPct >= 0 ? '+' : ''}{peakReturnPct.toFixed(1)}% · {(effectivePeak * 100).toFixed(0)}¢
               </div>
             </div>
           )}

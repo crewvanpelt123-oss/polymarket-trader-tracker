@@ -8,8 +8,8 @@ interface SidebarProps {
   selectedTrader: string | null;
   onSelect: (address: string | null) => void;
   stats: Stats;
-  currentView: 'traders' | 'scanner' | 'clusters';
-  onViewChange: (view: 'traders' | 'scanner' | 'clusters') => void;
+  currentView: 'traders' | 'scanner' | 'clusters' | 'hypo';
+  onViewChange: (view: 'traders' | 'scanner' | 'clusters' | 'hypo') => void;
   onExport?: () => void;
   onImport?: () => void;
   settings: {
@@ -42,14 +42,27 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        <div className="flex p-1 bg-slate-900 rounded-xl border border-slate-800 mb-8">
+        <div className="flex flex-wrap p-1 bg-slate-900 rounded-xl border border-slate-800 mb-8 gap-0.5">
           <button onClick={() => onViewChange('traders')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${currentView === 'traders' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500'}`}>Monitor</button>
           <button onClick={() => onViewChange('scanner')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${currentView === 'scanner' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500'}`}>Scanner</button>
           <button onClick={() => onViewChange('clusters')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${currentView === 'clusters' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500'}`}>Clusters</button>
+          <button onClick={() => onViewChange('hypo')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${currentView === 'hypo' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500'}`}>Wallet</button>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-          {currentView === 'clusters' ? (
+          {currentView === 'hypo' ? (
+            <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800 mb-6">
+              <h3 className="text-xs font-bold text-indigo-400 mb-2 uppercase">Wallet Logic</h3>
+              <ul className="text-[10px] text-slate-400 space-y-2">
+                <li className="flex justify-between"><span>• Entry Delay</span> <span className="text-white">5 min after flag</span></li>
+                <li className="flex justify-between"><span>• Bet Size</span> <span className="text-white">$100 / position</span></li>
+                <li className="flex justify-between"><span>• Stop Loss</span> <span className="text-rose-400">–25%</span></li>
+                <li className="flex justify-between"><span>• Hr 1 Target</span> <span className="text-emerald-400">2× sell</span></li>
+                <li className="flex justify-between"><span>• Hr 2 Target</span> <span className="text-emerald-400">1.5× sell</span></li>
+                <li className="flex justify-between"><span>• Force Close</span> <span className="text-amber-400">After 3 hrs</span></li>
+              </ul>
+            </div>
+          ) : currentView === 'clusters' ? (
             <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800 mb-6">
               <h3 className="text-xs font-bold text-emerald-500 mb-2 uppercase">Cluster Logic</h3>
               <ul className="text-[10px] text-slate-400 space-y-2">

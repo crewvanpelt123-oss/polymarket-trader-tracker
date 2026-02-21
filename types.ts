@@ -81,3 +81,26 @@ export interface ClusterStats {
   highAlertCount: number;
   lastScanTime: string;
 }
+
+export interface HypotheticalPosition {
+  id: string;
+  address: string;
+  username: string;
+  market_title: string;
+  market_slug: string;
+  conditionId: string;
+  outcome: string;               // 'YES' or 'NO'
+  entry_price: number;           // price we hypothetically bought at (after 5min delay)
+  whale_price: number;           // price whale actually bought at
+  entry_time: string;            // ISO — when we entered (whale_time + 5min)
+  whale_time: string;            // ISO — when whale was flagged
+  current_price: number;
+  peak_price_6hr: number;        // highest price in first 6 hours
+  shares: number;                // $100 / entry_price  (fixed $100 hypothetical bet)
+  status: 'pending' | 'open' | 'closed';
+  exit_price?: number;
+  exit_time?: string;
+  exit_reason?: string;          // 'stop_loss' | '2x_1hr' | '1.5x_2hr' | 'time_exit' | 'manual'
+  pnl?: number;                  // realized if closed
+  last_updated: string;
+}

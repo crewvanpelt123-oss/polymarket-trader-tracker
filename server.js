@@ -23,6 +23,186 @@ let stats = {
   lastScanTime: ''
 };
 
+// ── HYPOTHETICAL WALLET ──────────────────────────────────────────────────────
+let hypoPositions = [];
+const HYPO_BET_SIZE = 100; // fixed $100 per position
+const HYPO_ENTRY_DELAY_MS = 5 * 60 * 1000; // 5 minutes after whale flagged
+const HYPO_STOP_LOSS = 0.75;   // exit if price drops to 75% of entry (–25%)
+const HYPO_TARGET_1HR = 2.0;   // 2x within first hour
+const HYPO_TARGET_2HR = 1.5;   // 1.5x within second hour
+const HYPO_FORCE_CLOSE_MS = 3 * 60 * 60 * 1000; // force close after 3 hours
+
+function makeHypoId() {
+  return `hypo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// Seed the 3 manual positions from the image
+(function seedManualPositions() {
+  const now = Date.now();
+  const seed = [
+    {
+      address: '0xc61e2b6ff7a0d34a518f45b60954d05f34de244c',
+      username: '0xC61E2B...244C',
+      market_title: 'No change in Bank of Japan\'s interest rates after March 2026 meeting',
+      market_slug: '',
+      conditionId: '',
+      outcome: 'NO',
+      whale_price: 0.20,
+      whale_time: '2026-02-20T19:51:02.000Z', // 2:51:02 PM ET = 19:51:02 UTC
+    },
+    {
+      address: '0x0a59efd30de508bd0e7e197d4975f7ab49e107dd',
+      username: '0x0A59eF...07dd',
+      market_title: 'Will the next Prime Minister of Hungary be Klara Dobrev?',
+      market_slug: '',
+      conditionId: '',
+      outcome: 'YES',
+      whale_price: 0.00,
+      whale_time: '2026-02-20T07:02:33.000Z', // 2:02:33 AM ET = 7:02:33 UTC
+    },
+    {
+      address: '0xdbedc5ab35d896d3226c6ea5e1708dfc631f10f7',
+      username: 'bobi13',
+      market_title: 'Will Trump nominate Judy Shelton as the next Fed Chair?',
+      market_slug: '',
+      conditionId: '',
+      outcome: 'YES',
+      whale_price: 0.04,
+      whale_time: '2026-02-19T21:35:26.000Z', // 4:35:26 PM ET = 21:35:26 UTC
+    },
+  ];
+
+  for (const s of seed) {
+    const whaleTs = new Date(s.whale_time).getTime();
+    const entryTs = whaleTs + HYPO_ENTRY_DELAY_MS;
+    const entryPrice = s.whale_price > 0 ? s.whale_price : 0.01;
+    const shares = HYPO_BET_SIZE / entryPrice;
+    const isOpen = now >= entryTs;
+    hypoPositions.push({
+      id: makeHypoId(),
+      address: s.address,
+      username: s.username,
+      market_title: s.market_title,
+      market_slug: s.market_slug,
+      conditionId: s.conditionId,
+      outcome: s.outcome,
+      entry_price: entryPrice,
+      whale_price: s.whale_price,
+      entry_time: new Date(entryTs).toISOString(),
+      whale_time: s.whale_time,
+      current_price: entryPrice,
+      peak_price_6hr: entryPrice,
+      shares,
+      status: isOpen ? 'open' : 'pending',
+      last_updated: new Date().toISOString(),
+    });
+  }
+})();
+
+// Enqueue a whale as a hypothetical position (called from runScanner)
+function enqueueHypoPosition(whale) {
+  // Don't duplicate — one position per whale id
+  if (hypoPositions.some(p => p.id === `hypo-${whale.id}`)) return;
+  const entryPrice = whale.buy_price > 0 ? whale.buy_price : 0.01;
+  const shares = HYPO_BET_SIZE / entryPrice;
+  hypoPositions.unshift({
+    id: `hypo-${whale.id}`,
+    address: whale.address,
+    username: whale.username || whale.address.slice(0, 10) + '...',
+    market_title: whale.market_title,
+    market_slug: '',
+    conditionId: '',
+    outcome: 'YES',
+    entry_price: entryPrice,
+    whale_price: whale.buy_price,
+    entry_time: new Date(new Date(whale.timestamp).getTime() + HYPO_ENTRY_DELAY_MS).toISOString(),
+    whale_time: whale.timestamp,
+    current_price: entryPrice,
+    peak_price_6hr: entryPrice,
+    shares,
+    status: 'pending',
+    last_updated: new Date().toISOString(),
+  });
+  hypoPositions = hypoPositions.slice(0, 200);
+}
+
+// Price updater — polls Polymarket for each open/pending position
+async function updateHypoPositions() {
+  const now = Date.now();
+  for (const pos of hypoPositions) {
+    if (pos.status === 'closed') continue;
+
+    // Activate pending positions once the 5-min delay has passed
+    if (pos.status === 'pending' && now >= new Date(pos.entry_time).getTime()) {
+      pos.status = 'open';
+    }
+    if (pos.status !== 'open') continue;
+
+    const entryTs = new Date(pos.entry_time).getTime();
+    const ageMs = now - entryTs;
+
+    // Try to fetch current price from Polymarket
+    try {
+      if (pos.conditionId) {
+        const r = await fetch(`https://gamma-api.polymarket.com/markets?conditionId=${pos.conditionId}`);
+        if (r.ok) {
+          const data = await r.json();
+          const market = Array.isArray(data) ? data[0] : data;
+          if (market) {
+            const rawPrice = pos.outcome === 'NO'
+              ? parseFloat(market.outcomePrices?.[1] || market.bestBid || pos.current_price)
+              : parseFloat(market.outcomePrices?.[0] || market.bestAsk || pos.current_price);
+            if (rawPrice > 0) pos.current_price = rawPrice;
+            if (!pos.market_slug && market.slug) pos.market_slug = market.slug;
+          }
+        }
+      }
+    } catch {}
+
+    // Update 6hr peak
+    if (ageMs <= 6 * 60 * 60 * 1000 && pos.current_price > pos.peak_price_6hr) {
+      pos.peak_price_6hr = pos.current_price;
+    }
+
+    pos.last_updated = new Date().toISOString();
+
+    // ── Exit rules ──────────────────────────────────────────────────────────
+    const ratio = pos.current_price / pos.entry_price;
+
+    // Stop loss: –25%
+    if (ratio <= HYPO_STOP_LOSS) {
+      closeHypoPosition(pos, pos.current_price, 'stop_loss');
+      continue;
+    }
+    // 2x within hour 1
+    if (ageMs <= 60 * 60 * 1000 && ratio >= HYPO_TARGET_1HR) {
+      closeHypoPosition(pos, pos.current_price, '2x_1hr');
+      continue;
+    }
+    // 1.5x within hour 2
+    if (ageMs > 60 * 60 * 1000 && ageMs <= 2 * 60 * 60 * 1000 && ratio >= HYPO_TARGET_2HR) {
+      closeHypoPosition(pos, pos.current_price, '1.5x_2hr');
+      continue;
+    }
+    // Force close after 3 hours
+    if (ageMs >= HYPO_FORCE_CLOSE_MS) {
+      closeHypoPosition(pos, pos.current_price, 'time_exit');
+    }
+  }
+}
+
+function closeHypoPosition(pos, exitPrice, reason) {
+  pos.status = 'closed';
+  pos.exit_price = exitPrice;
+  pos.exit_time = new Date().toISOString();
+  pos.exit_reason = reason;
+  pos.pnl = (exitPrice - pos.entry_price) * pos.shares;
+}
+
+setInterval(updateHypoPositions, 30000);
+updateHypoPositions();
+// ─────────────────────────────────────────────────────────────────────────────
+
 let detectedClusters = [];
 let clusterNearMisses = [];
 let dismissedClusterIds = new Set();
@@ -264,6 +444,7 @@ async function runScanner() {
               timestamp: new Date().toISOString()
             };
             flaggedWhales = [whale, ...flaggedWhales].slice(0, 100);
+            enqueueHypoPosition(whale);
             await sendDiscordAlert(whale);
           } else {
             const failReasons = [];
@@ -570,6 +751,23 @@ app.post('/api/dismiss-cluster', (req, res) => {
   const { id } = req.body;
   dismissedClusterIds.add(id);
   detectedClusters = detectedClusters.filter(c => c.id !== id);
+  res.json({ success: true });
+});
+
+app.get('/api/hypo-positions', (req, res) => {
+  res.json({ positions: hypoPositions });
+});
+
+app.post('/api/hypo-close', (req, res) => {
+  const { id } = req.body;
+  const pos = hypoPositions.find(p => p.id === id);
+  if (!pos || pos.status === 'closed') return res.json({ success: false });
+  closeHypoPosition(pos, pos.current_price, 'manual');
+  res.json({ success: true });
+});
+
+app.post('/api/hypo-clear', (req, res) => {
+  hypoPositions = hypoPositions.filter(p => p.status !== 'closed');
   res.json({ success: true });
 });
 

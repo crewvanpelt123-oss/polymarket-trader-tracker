@@ -7,7 +7,7 @@ interface DashboardHeaderProps {
   selectedTrader?: Trader;
   onAnalyze: () => void;
   isAnalyzing: boolean;
-  currentView: 'traders' | 'scanner' | 'clusters';
+  currentView: 'traders' | 'scanner' | 'clusters' | 'hypo';
   isScanning?: boolean;
   onToggleScan?: () => void;
   onClearHistory?: () => void;
@@ -55,7 +55,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 </div>
                 Whale Finder Scanner
               </>
-            ) : (
+            ) : currentView === 'clusters' ? (
               <>
                 <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center text-blue-400 relative">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -65,6 +65,15 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 </div>
                 Cluster Detector
               </>
+            ) : (
+              <>
+                <div className="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center text-indigo-400">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                  </svg>
+                </div>
+                Hypothetical Wallet
+              </>
             )}
           </h2>
           {currentView === 'scanner' && (
@@ -72,6 +81,9 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           )}
           {currentView === 'clusters' && (
             <p className="text-sm text-slate-400 mt-1 ml-11">Detecting coordinated Sybil clusters — 6+ wallets buying the same low-price market in 120s.</p>
+          )}
+          {currentView === 'hypo' && (
+            <p className="text-sm text-slate-400 mt-1 ml-11">Simulated $100 positions on every whale flagged — 5 min delayed entry, auto exit rules applied.</p>
           )}
           {currentView === 'traders' && !selectedTrader && (
             <p className="text-sm text-slate-400 mt-1">Live feed of trades from all tracked Polymarket accounts.</p>
@@ -113,7 +125,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 {isScanning ? 'Monitoring Live...' : 'Resume Scanner'}
               </button>
             </>
-          ) : (
+          ) : currentView === 'clusters' ? (
             <>
               <button
                 onClick={onTestCluster}
@@ -128,6 +140,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 Clear All
               </button>
             </>
+          ) : (
+            <div className="text-xs text-slate-500 font-mono">Auto-managed · updates every 30s</div>
           )}
         </div>
       </div>

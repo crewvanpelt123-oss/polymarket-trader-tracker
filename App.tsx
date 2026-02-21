@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trader, Trade, FlaggedUser, Cluster, ClusterStats } from './types';
+import { Trader, Trade, FlaggedUser, Cluster, ClusterStats, HypotheticalPosition } from './types';
 import Sidebar from './components/Sidebar';
 import TradeFeed from './components/TradeFeed';
 import ScannerFeed from './components/ScannerFeed';
 import ClusterFeed from './components/ClusterFeed';
+import HypotheticalWallet from './components/HypotheticalWallet';
 import DashboardHeader from './components/DashboardHeader';
 import { analyzeTraderStrategy } from './services/gemini';
 
@@ -16,7 +17,7 @@ const TRADES_STORAGE_KEY = 'poly_tracker_trades_cache';
 const SETTINGS_STORAGE_KEY = 'poly_tracker_settings';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<'traders' | 'scanner' | 'clusters'>('traders');
+  const [currentView, setCurrentView] = useState<'traders' | 'scanner' | 'clusters' | 'hypo'>('traders');
   const [traders, setTraders] = useState<Trader[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [flaggedUsers, setFlaggedUsers] = useState<FlaggedUser[]>([]);
@@ -42,6 +43,8 @@ const App: React.FC = () => {
     excludedMarkets: 0,
     lastScanTime: ''
   });
+
+  const [hypoPositions, setHypoPositions] = useState<HypotheticalPosition[]>([]);
 
   const [detectedClusters, setDetectedClusters] = useState<Cluster[]>([]);
   const [clusterNearMisses, setClusterNearMisses] = useState<any[]>([]);
@@ -86,6 +89,22 @@ const App: React.FC = () => {
 
     const interval = setInterval(syncWithServer, 5000);
     syncWithServer();
+    return () => clearInterval(interval);
+  }, []);
+
+  // FETCH HYPOTHETICAL POSITIONS
+  useEffect(() => {
+    const syncHypo = async () => {
+      try {
+        const res = await fetch('/api/hypo-positions');
+        if (res.ok) {
+          const data = await res.json();
+          setHypoPositions(data.positions || []);
+        }
+      } catch (e) {}
+    };
+    const interval = setInterval(syncHypo, 15000);
+    syncHypo();
     return () => clearInterval(interval);
   }, []);
 
@@ -276,8 +295,20 @@ const App: React.FC = () => {
             <TradeFeed trades={selectedTrader ? trades.filter(t => t.trader_address === selectedTrader) : trades} />
           ) : currentView === 'scanner' ? (
             <ScannerFeed flaggedUsers={flaggedUsers} recentRejects={recentRejects} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} onDismiss={dismissWhale} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
-          ) : (
+          ) : currentView === 'clusters' ? (
             <ClusterFeed clusters={detectedClusters} clusterNearMisses={clusterNearMisses} clusterStats={clusterStats} onDismiss={dismissCluster} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
+          ) : (
+            <HypotheticalWallet
+              positions={hypoPositions}
+              onClose={async (id) => {
+                await fetch('/api/hypo-close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+                setHypoPositions(prev => prev.map(p => p.id === id ? { ...p, status: 'closed', exit_reason: 'manual', exit_price: p.current_price, exit_time: new Date().toISOString(), pnl: (p.current_price - p.entry_price) * p.shares } : p));
+              }}
+              onClearClosed={async () => {
+                await fetch('/api/hypo-clear', { method: 'POST' });
+                setHypoPositions(prev => prev.filter(p => p.status !== 'closed'));
+              }}
+            />
           )}
         </div>
       </main>

@@ -513,6 +513,8 @@ async function runScanner() {
       }
 
       const price = parseFloat(t.price || 0);
+      const tradeSize = parseFloat(t.size || t.usdcSize || 0);
+      const tradeUsdcSpent = price * tradeSize;
       const title = t.title || "";
 
       const CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
@@ -523,7 +525,7 @@ async function runScanner() {
         continue;
       }
 
-      if (t.side === 'BUY' && price <= 0.20) {
+      if (t.side === 'BUY' && price <= 0.20 && tradeUsdcSpent >= 2000) {
         stats.lowPriceMatches++;
         const userAddress = t.proxyWallet || t.user;
         if (!userAddress) continue;
@@ -539,13 +541,14 @@ async function runScanner() {
             return val > max ? val : max;
           }, 0);
 
-          if (positions.length < 6 && pnlValue < 30000 && pnlValue > -30000 && maxPosValue > 2000) {
+          if (positions.length < 6 && pnlValue < 30000 && pnlValue > -30000) {
             const whale = {
               id: hash,
               address: userAddress,
               username: t.name || t.pseudonym || 'Fresh Whale',
               market_title: title,
               buy_price: price,
+              trade_usdc: tradeUsdcSpent,
               pos_count: positions.length,
               pnl: pnlValue,
               max_pos_value: maxPosValue,
@@ -562,7 +565,7 @@ async function runScanner() {
             if (positions.length >= 6) failReasons.push(`Too many positions (${positions.length})`);
             if (pnlValue >= 30000) failReasons.push(`PNL too high ($${pnlValue.toLocaleString()})`);
             if (pnlValue <= -30000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
-            if (maxPosValue <= 2000) failReasons.push(`Max position too small ($${maxPosValue.toFixed(2)})`);
+            if (tradeUsdcSpent < 2000) failReasons.push(`Trade too small ($${tradeUsdcSpent.toFixed(0)} USDC spent)`);
             recentRejects = [{
               address: userAddress,
               username: t.name || t.pseudonym || userAddress.slice(0, 10) + '...',

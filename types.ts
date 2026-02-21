@@ -37,6 +37,7 @@ export interface FlaggedUser {
   username?: string;
   market_title: string;
   buy_price: number;
+  trade_usdc: number;
   pos_count: number;
   pnl: number;
   max_pos_value: number;

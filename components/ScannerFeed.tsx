@@ -94,6 +94,11 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
                     <div className="text-slate-300 font-medium line-clamp-1 max-w-xs">{user.market_title}</div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">{(user.buy_price * 100).toFixed(0)}c BUY</span>
+                      {user.trade_usdc > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold">
+                          ${user.trade_usdc.toLocaleString(undefined, { maximumFractionDigits: 0 })} spent
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap">

@@ -127,6 +127,90 @@ function enqueueHypoPosition(whale) {
   hypoPositions = hypoPositions.slice(0, 200);
 }
 
+// Backfill historical 6hr peak for positions that are already past the window.
+// Fetches all trades on that market from the firehose between entry and entry+6hr,
+// finds the highest price traded in that window, and sets peak_price_6hr.
+async function backfillPeak(pos) {
+  const entryTs = new Date(pos.entry_time).getTime();
+  const windowEnd = entryTs + 6 * 60 * 60 * 1000;
+  const entryTsSec = Math.floor(entryTs / 1000);
+  const windowEndSec = Math.floor(windowEnd / 1000);
+
+  // First resolve conditionId if missing by checking the whale's own trades
+  if (!pos.conditionId) {
+    try {
+      const r = await fetch(`https://data-api.polymarket.com/trades?user=${pos.address}&limit=100`);
+      if (r.ok) {
+        const trades = await r.json();
+        const match = trades.find(tr =>
+          (tr.title || '').toLowerCase().includes(pos.market_title.toLowerCase().slice(0, 20)) ||
+          pos.market_title.toLowerCase().includes((tr.title || '').toLowerCase().slice(0, 20))
+        );
+        if (match) {
+          if (match.conditionId) pos.conditionId = match.conditionId;
+          if (match.slug) pos.market_slug = match.slug;
+        }
+      }
+    } catch {}
+  }
+
+  if (!pos.conditionId) return; // can't backfill without conditionId
+
+  // Fetch historical trades for this market around the entry window
+  // The API supports taker/maker trades filtered by conditionId
+  try {
+    let highestPrice = 0;
+    let offset = 0;
+    const limit = 500;
+    // Page through trades until we've passed the entry window start
+    while (true) {
+      const r = await fetch(
+        `https://data-api.polymarket.com/trades?conditionId=${pos.conditionId}&limit=${limit}&offset=${offset}`
+      );
+      if (!r.ok) break;
+      const trades = await r.json();
+      if (!trades || trades.length === 0) break;
+
+      for (const tr of trades) {
+        const ts = tr.timestamp || 0;
+        if (ts < entryTsSec) break; // trades are newest-first; stop once we're before entry
+        if (ts > windowEndSec) continue; // skip trades after the 6hr window
+        // Only count the outcome the whale bet on
+        if ((tr.outcome || '').toUpperCase() !== pos.outcome.toUpperCase()) continue;
+        const p = parseFloat(tr.price || 0);
+        if (p > highestPrice) highestPrice = p;
+      }
+
+      // If the oldest trade in this page is already before entry, we're done
+      const oldest = trades[trades.length - 1];
+      if (!oldest || (oldest.timestamp || 0) < entryTsSec) break;
+      offset += limit;
+      if (offset > 5000) break; // safety cap
+    }
+
+    if (highestPrice > 0) {
+      pos.peak_price_6hr = highestPrice;
+      console.log(`Backfilled peak for ${pos.username} — ${pos.market_title.slice(0, 40)}: ${(highestPrice * 100).toFixed(0)}¢`);
+    }
+  } catch (e) {
+    console.error('Backfill error:', e.message);
+  }
+}
+
+async function backfillAllMissingPeaks() {
+  const now = Date.now();
+  for (const pos of hypoPositions) {
+    if (pos.peak_price_6hr > 0) continue; // already has peak data
+    const entryTs = new Date(pos.entry_time).getTime();
+    const ageMs = now - entryTs;
+    if (ageMs < 6 * 60 * 60 * 1000) continue; // still within window, live poller handles it
+    await backfillPeak(pos);
+  }
+}
+
+// Run backfill once on startup after a short delay to let seeds initialize
+setTimeout(backfillAllMissingPeaks, 5000);
+
 // Price updater — polls Polymarket for each open/pending position
 async function updateHypoPositions() {
   const now = Date.now();

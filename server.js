@@ -92,7 +92,7 @@ function makeHypoId() {
       entry_time: new Date(entryTs).toISOString(),
       whale_time: s.whale_time,
       current_price: entryPrice,
-      peak_price_6hr: entryPrice,
+      peak_price_6hr: 0,  // 0 = no price recorded yet within the 6hr window
       shares,
       status: isOpen ? 'open' : 'pending',
       last_updated: new Date().toISOString(),
@@ -119,7 +119,7 @@ function enqueueHypoPosition(whale) {
     entry_time: new Date(new Date(whale.timestamp).getTime() + HYPO_ENTRY_DELAY_MS).toISOString(),
     whale_time: whale.timestamp,
     current_price: entryPrice,
-    peak_price_6hr: entryPrice,
+    peak_price_6hr: 0,  // 0 = no price recorded yet within the 6hr window
     shares,
     status: 'pending',
     last_updated: new Date().toISOString(),
@@ -183,9 +183,8 @@ async function updateHypoPositions() {
       }
     } catch {}
 
-    // Update 6hr peak — always track if current price beats it, regardless of age.
-    // The 6hr window only applies to what we *display*, not to whether we record it.
-    if (pos.current_price > pos.peak_price_6hr) {
+    // Update 6hr peak — only within 6 hours of entry, matching max hold time
+    if (ageMs <= 6 * 60 * 60 * 1000 && pos.current_price > pos.peak_price_6hr) {
       pos.peak_price_6hr = pos.current_price;
     }
 

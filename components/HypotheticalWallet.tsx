@@ -51,13 +51,10 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
       ? ((( isClosed ? (pos.exit_price || pos.entry_price) : pos.current_price) - pos.entry_price) / pos.entry_price) * 100
       : 0;
 
-    // For closed positions, peak should be at least the exit price — if we never
-    // recorded a price higher than entry (server was catching up), fall back to exit_price.
-    const effectivePeak = isClosed
-      ? Math.max(pos.peak_price_6hr, pos.exit_price || pos.entry_price)
-      : pos.peak_price_6hr;
-    const peakReturn    = (effectivePeak - pos.entry_price) * pos.shares;
-    const peakReturnPct = pos.entry_price > 0 ? ((effectivePeak - pos.entry_price) / pos.entry_price) * 100 : 0;
+    // peak_price_6hr is 0 if no price was recorded within the 6hr window
+    const hasPeak = pos.peak_price_6hr > 0;
+    const peakReturn    = hasPeak ? (pos.peak_price_6hr - pos.entry_price) * pos.shares : null;
+    const peakReturnPct = hasPeak && pos.entry_price > 0 ? ((pos.peak_price_6hr - pos.entry_price) / pos.entry_price) * 100 : null;
 
     const polyLink = pos.market_slug
       ? `https://polymarket.com/event/${pos.market_slug}`
@@ -138,16 +135,16 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
 
         {/* Peak 6hr */}
         <td className="px-4 py-4 whitespace-nowrap">
-          {isPending ? (
+          {isPending || !hasPeak ? (
             <span className="text-slate-700 text-[10px]">—</span>
           ) : (
             <div>
               <div className="text-[10px] text-slate-600 font-bold uppercase tracking-tight">6hr Peak</div>
-              <div className={`text-sm font-bold ${peakReturn >= 0 ? 'text-indigo-400' : 'text-slate-400'}`}>
-                {peakReturn >= 0 ? '+' : ''}${peakReturn.toFixed(2)}
+              <div className={`text-sm font-bold ${peakReturn! >= 0 ? 'text-indigo-400' : 'text-slate-400'}`}>
+                {peakReturn! >= 0 ? '+' : ''}${peakReturn!.toFixed(2)}
               </div>
               <div className="text-[10px] font-mono text-slate-500">
-                {peakReturnPct >= 0 ? '+' : ''}{peakReturnPct.toFixed(1)}% · {(effectivePeak * 100).toFixed(0)}¢
+                {peakReturnPct! >= 0 ? '+' : ''}{peakReturnPct!.toFixed(1)}% · {(pos.peak_price_6hr * 100).toFixed(0)}¢
               </div>
             </div>
           )}

@@ -43,12 +43,13 @@ function makeHypoId() {
     {
       address: '0xc61e2b6ff7a0d34a518f45b60954d05f34de244c',
       username: '0xC61E2B...244C',
+      // Whale bought shares of "No change" market — betting rates stay unchanged = YES side
       market_title: 'No change in Bank of Japan\'s interest rates after March 2026 meeting',
       market_slug: '',
       conditionId: '',
-      outcome: 'NO',
+      outcome: 'YES',
       whale_price: 0.20,
-      whale_time: '2026-02-20T19:51:02.000Z', // 2:51:02 PM ET = 19:51:02 UTC
+      whale_time: '2026-02-20T19:51:02.000Z',
     },
     {
       address: '0x0a59efd30de508bd0e7e197d4975f7ab49e107dd',
@@ -57,8 +58,8 @@ function makeHypoId() {
       market_slug: '',
       conditionId: '',
       outcome: 'YES',
-      whale_price: 0.00,
-      whale_time: '2026-02-20T07:02:33.000Z', // 2:02:33 AM ET = 7:02:33 UTC
+      whale_price: 0.01, // shown as 0c — use 1c floor so shares/price math works
+      whale_time: '2026-02-20T07:02:33.000Z',
     },
     {
       address: '0xdbedc5ab35d896d3226c6ea5e1708dfc631f10f7',
@@ -68,7 +69,7 @@ function makeHypoId() {
       conditionId: '',
       outcome: 'YES',
       whale_price: 0.04,
-      whale_time: '2026-02-19T21:35:26.000Z', // 4:35:26 PM ET = 21:35:26 UTC
+      whale_time: '2026-02-19T21:35:26.000Z',
     },
   ];
 
@@ -110,9 +111,9 @@ function enqueueHypoPosition(whale) {
     address: whale.address,
     username: whale.username || whale.address.slice(0, 10) + '...',
     market_title: whale.market_title,
-    market_slug: '',
-    conditionId: '',
-    outcome: 'YES',
+    market_slug: whale.market_slug || '',
+    conditionId: whale.conditionId || '',
+    outcome: whale.outcome || 'YES',
     entry_price: entryPrice,
     whale_price: whale.buy_price,
     entry_time: new Date(new Date(whale.timestamp).getTime() + HYPO_ENTRY_DELAY_MS).toISOString(),
@@ -144,16 +145,39 @@ async function updateHypoPositions() {
     // Try to fetch current price from Polymarket
     try {
       if (pos.conditionId) {
+        // Primary: gamma API with conditionId
         const r = await fetch(`https://gamma-api.polymarket.com/markets?conditionId=${pos.conditionId}`);
         if (r.ok) {
           const data = await r.json();
           const market = Array.isArray(data) ? data[0] : data;
           if (market) {
-            const rawPrice = pos.outcome === 'NO'
-              ? parseFloat(market.outcomePrices?.[1] || market.bestBid || pos.current_price)
-              : parseFloat(market.outcomePrices?.[0] || market.bestAsk || pos.current_price);
+            // outcomePrices is ["yesPrice","noPrice"]
+            const prices = market.outcomePrices
+              ? (typeof market.outcomePrices === 'string' ? JSON.parse(market.outcomePrices) : market.outcomePrices)
+              : null;
+            const rawPrice = prices
+              ? parseFloat(pos.outcome === 'NO' ? prices[1] : prices[0])
+              : 0;
             if (rawPrice > 0) pos.current_price = rawPrice;
             if (!pos.market_slug && market.slug) pos.market_slug = market.slug;
+          }
+        }
+      } else {
+        // Fallback: look at the whale's recent trades on this market title to infer price movement
+        const r = await fetch(`https://data-api.polymarket.com/trades?user=${pos.address}&limit=50`);
+        if (r.ok) {
+          const trades = await r.json();
+          // Find the most recent trade on the same market
+          const match = trades.find(tr =>
+            (tr.title || '').toLowerCase().includes(pos.market_title.toLowerCase().slice(0, 20)) ||
+            pos.market_title.toLowerCase().includes((tr.title || '').toLowerCase().slice(0, 20))
+          );
+          if (match) {
+            // Grab conditionId and slug for future polls
+            if (match.conditionId) pos.conditionId = match.conditionId;
+            if (match.slug) pos.market_slug = match.slug;
+            const rawPrice = parseFloat(match.price || 0);
+            if (rawPrice > 0) pos.current_price = rawPrice;
           }
         }
       }
@@ -441,7 +465,10 @@ async function runScanner() {
               pos_count: positions.length,
               pnl: pnlValue,
               max_pos_value: maxPosValue,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              conditionId: t.conditionId || '',
+              market_slug: t.slug || '',
+              outcome: t.outcome || 'YES',
             };
             flaggedWhales = [whale, ...flaggedWhales].slice(0, 100);
             enqueueHypoPosition(whale);

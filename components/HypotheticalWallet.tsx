@@ -115,6 +115,11 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
                 <div className={`text-[10px] font-mono ${currentReturnPct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                   {currentReturnPct >= 0 ? '+' : ''}{currentReturnPct.toFixed(1)}%
                 </div>
+                {isClosed && pos.exit_reason && (
+                  <div className={`mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded border w-fit ${exitLabel(pos.exit_reason).color}`}>
+                    {exitLabel(pos.exit_reason).text}
+                  </div>
+                )}
               </div>
               <div>
                 <div className="text-[10px] text-slate-600 font-bold uppercase tracking-tight">Now</div>

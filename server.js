@@ -2,28 +2,43 @@ const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
+const { Pool } = require('pg');
 
-const POSITIONS_FILE = path.join(__dirname, 'hypo-positions.json');
+const db = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+});
 
-function savePositions() {
+async function initDb() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS hypo_positions (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL
+    )
+  `);
+  console.log('DB ready');
+}
+
+async function savePositions() {
   try {
-    fs.writeFileSync(POSITIONS_FILE, JSON.stringify(hypoPositions, null, 2));
+    await db.query('DELETE FROM hypo_positions');
+    if (hypoPositions.length === 0) return;
+    const values = hypoPositions.map((p, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(', ');
+    const params = hypoPositions.flatMap(p => [p.id, JSON.stringify(p)]);
+    await db.query(`INSERT INTO hypo_positions (id, data) VALUES ${values}`, params);
   } catch (e) {
     console.error('Failed to save positions:', e.message);
   }
 }
 
-function loadPositions() {
+async function loadPositions() {
   try {
-    if (fs.existsSync(POSITIONS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(POSITIONS_FILE, 'utf8'));
-      if (Array.isArray(data)) return data;
-    }
+    const res = await db.query('SELECT data FROM hypo_positions ORDER BY data->>\'entry_time\' DESC');
+    return res.rows.map(r => r.data);
   } catch (e) {
     console.error('Failed to load positions:', e.message);
+    return [];
   }
-  return [];
 }
 
 const app = express();
@@ -47,7 +62,7 @@ let stats = {
 };
 
 // ── HYPOTHETICAL WALLET ──────────────────────────────────────────────────────
-let hypoPositions = loadPositions();
+let hypoPositions = [];
 const HYPO_BET_SIZE = 100; // fixed $100 per position
 const HYPO_ENTRY_DELAY_MS = 5 * 60 * 1000; // 5 minutes after whale flagged
 const HYPO_STOP_LOSS = 0.75;   // exit if price drops to 75% of entry (–25%)
@@ -915,6 +930,15 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running 24/7 on port ${PORT}`);
+initDb().then(async () => {
+  hypoPositions = await loadPositions();
+  console.log(`Loaded ${hypoPositions.length} positions from DB`);
+  app.listen(PORT, () => {
+    console.log(`Server running 24/7 on port ${PORT}`);
+  });
+}).catch(err => {
+  console.error('Failed to init DB, starting without persistence:', err.message);
+  app.listen(PORT, () => {
+    console.log(`Server running 24/7 on port ${PORT}`);
+  });
 });

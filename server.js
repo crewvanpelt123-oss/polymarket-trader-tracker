@@ -1010,6 +1010,19 @@ app.get('/api/fade-scan', async (req, res) => {
       'quarterback', 'pitcher', 'roster', 'draft pick', 'mvp', 'rookie',
     ];
 
+    const TIME_PATTERNS = [
+      /\bhow long\b/i, /\bwhen will\b/i, /\bwhen does\b/i, /\bwhen is\b/i,
+      /\bby when\b/i, /\bwhat date\b/i, /\bwhat day\b/i, /\bwhat month\b/i,
+      /\bwhat year\b/i, /\bwhat time\b/i, /\bhow many days\b/i,
+      /\bhow many weeks\b/i, /\bhow many months\b/i, /\bhow soon\b/i,
+      /\bfirst.*\d{4}\b/i, /\bbefore.*\d{4}\b/i, /\bby (january|february|march|april|may|june|july|august|september|october|november|december)\b/i,
+    ];
+
+    const isTimeEvent = (event) => {
+      const text = `${event.title || ''} ${event.slug || ''}`;
+      return TIME_PATTERNS.some(p => p.test(text));
+    };
+
     const isSportsEvent = (event) => {
       const text = `${event.title || ''} ${event.slug || ''} ${(event.tags || []).map(t => t.label || t.slug || '').join(' ')}`.toLowerCase();
       return SPORTS_KEYWORDS.some(kw => text.includes(kw));
@@ -1019,6 +1032,7 @@ app.get('/api/fade-scan', async (req, res) => {
 
     for (const event of (Array.isArray(events) ? events : [])) {
       if (isSportsEvent(event)) continue;
+      if (isTimeEvent(event)) continue;
       const markets = event.markets || [];
       if (markets.length < minOutcomes) continue;
 

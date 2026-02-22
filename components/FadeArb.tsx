@@ -93,6 +93,8 @@ const FadeArb: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newNoPrice, setNewNoPrice] = useState('');
 
+  const [loadedEventTitle, setLoadedEventTitle] = useState('');
+
   // Scanner state
   const [scanResults, setScanResults] = useState<FadeOpportunity[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -132,7 +134,10 @@ const FadeArb: React.FC = () => {
       yesPrice: o.yesPrice,
       faded: fadedName ? o.name === fadedName : false,
     })));
+    setLoadedEventTitle(opp.eventTitle);
     setBruteResults(null as any);
+    // Scroll down to calculator
+    setTimeout(() => document.getElementById('fade-calculator')?.scrollIntoView({ behavior: 'smooth' }), 100);
   }, []);
 
   const basket = useMemo(() => calcBasket(outcomes), [outcomes]);
@@ -309,8 +314,13 @@ const FadeArb: React.FC = () => {
       </div>
 
       {/* Header */}
-      <div className="bg-slate-800/40 rounded-xl border border-slate-700/50 px-5 py-4">
+      <div id="fade-calculator" className="bg-slate-800/40 rounded-xl border border-slate-700/50 px-5 py-4">
         <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Fade Arb Calculator</div>
+        {loadedEventTitle && (
+          <div className="mt-1 mb-2 text-sm font-semibold text-violet-300 border-l-2 border-violet-500 pl-3">
+            {loadedEventTitle}
+          </div>
+        )}
         <p className="text-xs text-slate-400">
           Buy NO shares on all outcomes in the basket. If any included outcome wins, you collect <span className="text-white font-bold">(K−1) × $1.00</span>. Faded outcomes are excluded from the basket — if a faded outcome wins, you lose everything.
         </p>

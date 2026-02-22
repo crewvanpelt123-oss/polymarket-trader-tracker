@@ -984,6 +984,90 @@ app.post('/api/hypo-clear', (req, res) => {
   res.json({ success: true });
 });
 
+// ── FADE ARB SCANNER ─────────────────────────────────────────────────────────
+app.get('/api/fade-scan', async (req, res) => {
+  try {
+    const minOutcomes = parseInt(req.query.minOutcomes || '3');
+    const minLiquidity = parseFloat(req.query.minLiquidity || '1000');
+    const maxBlackSwan = parseFloat(req.query.maxBlackSwan || '0.10');
+
+    // Fetch active events with multiple markets
+    const url = `https://gamma-api.polymarket.com/events?active=true&closed=false&limit=200&order=volume24hr&ascending=false`;
+    const r = await fetch(url);
+    if (!r.ok) return res.status(502).json({ error: 'Polymarket API error' });
+    const events = await r.json();
+
+    const opportunities = [];
+
+    for (const event of (Array.isArray(events) ? events : [])) {
+      const markets = event.markets || [];
+      if (markets.length < minOutcomes) continue;
+
+      const parsed = markets.map(m => {
+        let prices = m.outcomePrices;
+        if (typeof prices === 'string') { try { prices = JSON.parse(prices); } catch { prices = []; } }
+        const yesPrice = parseFloat(prices?.[0] || 0);
+        const noPrice = parseFloat(prices?.[1] || 0);
+        const liquidity = parseFloat(m.liquidityNum || m.liquidity || 0);
+        return {
+          name: m.groupItemTitle || m.question || m.slug || 'Unknown',
+          conditionId: m.conditionId || '',
+          slug: m.slug || '',
+          yesPrice,
+          noPrice: noPrice > 0 ? noPrice : parseFloat((1 - yesPrice).toFixed(4)),
+          liquidity,
+          volume24hr: parseFloat(m.volume24hr || 0),
+        };
+      }).filter(m => m.yesPrice > 0 && m.noPrice > 0 && m.liquidity >= minLiquidity);
+
+      if (parsed.length < minOutcomes) continue;
+
+      // Calculate full basket (no fades)
+      const K = parsed.length;
+      const cost = parsed.reduce((s, m) => s + m.noPrice, 0);
+      const payout = (K - 1) * 1.0;
+      const netProfit = payout - cost;
+      const roi = cost > 0 ? (netProfit / cost) * 100 : 0;
+
+      // Find best single fade (highest ROI, black swan under threshold)
+      let bestFade = null;
+      for (let i = 0; i < parsed.length; i++) {
+        const included = parsed.filter((_, j) => j !== i);
+        const fK = included.length;
+        const fCost = included.reduce((s, m) => s + m.noPrice, 0);
+        const fPayout = (fK - 1) * 1.0;
+        const fNet = fPayout - fCost;
+        const fRoi = fCost > 0 ? (fNet / fCost) * 100 : 0;
+        const blackSwan = parsed[i].yesPrice;
+        if (fRoi > (bestFade?.roi ?? -Infinity) && blackSwan <= maxBlackSwan) {
+          bestFade = { fadedName: parsed[i].name, roi: fRoi, cost: fCost, netProfit: fNet, blackSwan };
+        }
+      }
+
+      opportunities.push({
+        eventId: event.id,
+        eventTitle: event.title || event.slug,
+        eventSlug: event.slug,
+        outcomes: parsed,
+        fullBasket: { K, cost, payout, netProfit, roi },
+        bestFade,
+      });
+    }
+
+    // Sort by best ROI (using bestFade ROI if available, else full basket)
+    opportunities.sort((a, b) => {
+      const aRoi = a.bestFade?.roi ?? a.fullBasket.roi;
+      const bRoi = b.bestFade?.roi ?? b.fullBasket.roi;
+      return bRoi - aRoi;
+    });
+
+    res.json({ opportunities: opportunities.slice(0, 50) });
+  } catch (e) {
+    console.error('Fade scan error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });

@@ -1,11 +1,30 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 
 interface Outcome {
   id: string;
   name: string;
-  noPrice: number;  // price of NO share (0–1)
-  yesPrice: number; // price of YES share = 1 - noPrice
-  faded: boolean;   // excluded from basket
+  noPrice: number;
+  yesPrice: number;
+  faded: boolean;
+}
+
+interface ScannedOutcome {
+  name: string;
+  conditionId: string;
+  slug: string;
+  yesPrice: number;
+  noPrice: number;
+  liquidity: number;
+  volume24hr: number;
+}
+
+interface FadeOpportunity {
+  eventId: string;
+  eventTitle: string;
+  eventSlug: string;
+  outcomes: ScannedOutcome[];
+  fullBasket: { K: number; cost: number; payout: number; netProfit: number; roi: number };
+  bestFade: { fadedName: string; roi: number; cost: number; netProfit: number; blackSwan: number } | null;
 }
 
 function calcBasket(outcomes: Outcome[]) {
@@ -74,6 +93,48 @@ const FadeArb: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newNoPrice, setNewNoPrice] = useState('');
 
+  // Scanner state
+  const [scanResults, setScanResults] = useState<FadeOpportunity[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [scanMinLiquidity, setScanMinLiquidity] = useState('1000');
+  const [scanMinOutcomes, setScanMinOutcomes] = useState('3');
+  const [scanMaxBlackSwan, setScanMaxBlackSwan] = useState('10');
+  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+
+  const runScan = useCallback(async () => {
+    setScanning(true);
+    setScanError('');
+    setScanResults([]);
+    try {
+      const params = new URLSearchParams({
+        minOutcomes: scanMinOutcomes,
+        minLiquidity: scanMinLiquidity,
+        maxBlackSwan: (parseFloat(scanMaxBlackSwan) / 100).toString(),
+      });
+      const res = await fetch(`/api/fade-scan?${params}`);
+      if (!res.ok) throw new Error('Server error');
+      const data = await res.json();
+      setScanResults(data.opportunities || []);
+    } catch (e: any) {
+      setScanError(e.message || 'Failed to scan');
+    } finally {
+      setScanning(false);
+    }
+  }, [scanMinOutcomes, scanMinLiquidity, scanMaxBlackSwan]);
+
+  const loadIntoCalculator = useCallback((opp: FadeOpportunity, fadedName?: string) => {
+    let id = 100;
+    setOutcomes(opp.outcomes.map(o => ({
+      id: `scan-${id++}`,
+      name: o.name,
+      noPrice: o.noPrice,
+      yesPrice: o.yesPrice,
+      faded: fadedName ? o.name === fadedName : false,
+    })));
+    setBruteResults(null as any);
+  }, []);
+
   const basket = useMemo(() => calcBasket(outcomes), [outcomes]);
 
   const toggleFade = (id: string) => {
@@ -124,6 +185,128 @@ const FadeArb: React.FC = () => {
 
   return (
     <div className="w-full space-y-6">
+
+      {/* Scanner */}
+      <div className="bg-slate-800/40 rounded-xl border border-slate-700/50 px-5 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Live Market Scanner</div>
+            <div className="text-xs text-slate-400">Searches Polymarket for active multi-outcome events and ranks them by fade ROI.</div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">Min Liquidity</label>
+              <input type="number" value={scanMinLiquidity} onChange={e => setScanMinLiquidity(e.target.value)}
+                className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500" />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">Min Outcomes</label>
+              <input type="number" value={scanMinOutcomes} onChange={e => setScanMinOutcomes(e.target.value)} min="2" max="20"
+                className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500" />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">Max BS%</label>
+              <input type="number" value={scanMaxBlackSwan} onChange={e => setScanMaxBlackSwan(e.target.value)} min="0" max="100"
+                className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500" />
+            </div>
+            <button onClick={runScan} disabled={scanning}
+              className="bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-xs font-bold transition-colors whitespace-nowrap">
+              {scanning ? 'Scanning...' : 'Scan Markets'}
+            </button>
+          </div>
+        </div>
+
+        {scanError && (
+          <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">{scanError}</div>
+        )}
+
+        {scanResults.length > 0 && (
+          <div className="space-y-2 mt-2">
+            <div className="text-[10px] text-slate-500 font-bold uppercase mb-2">{scanResults.length} opportunities found</div>
+            <div className="rounded-xl border border-slate-800 overflow-hidden">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-900/50">
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Event</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Outcomes</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Full Basket ROI</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Best Fade ROI</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Black Swan</th>
+                    <th className="px-3 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {scanResults.map(opp => (
+                    <React.Fragment key={opp.eventId}>
+                      <tr className="hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => setExpandedEvent(expandedEvent === opp.eventId ? null : opp.eventId)}>
+                        <td className="px-3 py-3">
+                          <div className="text-slate-200 font-medium text-xs line-clamp-1 max-w-xs">{opp.eventTitle}</div>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-slate-400">{opp.fullBasket.K}</td>
+                        <td className="px-3 py-3">
+                          <span className={`text-xs font-bold font-mono ${opp.fullBasket.roi > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {opp.fullBasket.roi > 0 ? '+' : ''}{opp.fullBasket.roi.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          {opp.bestFade ? (
+                            <span className="text-xs font-bold font-mono text-emerald-400">+{opp.bestFade.roi.toFixed(1)}%</span>
+                          ) : <span className="text-slate-600 text-xs">—</span>}
+                        </td>
+                        <td className="px-3 py-3">
+                          {opp.bestFade ? (
+                            <span className={`text-xs font-mono ${opp.bestFade.blackSwan > 0.05 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                              {(opp.bestFade.blackSwan * 100).toFixed(1)}%
+                            </span>
+                          ) : <span className="text-slate-600 text-xs">—</span>}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={e => { e.stopPropagation(); loadIntoCalculator(opp); }}
+                              className="text-[9px] font-bold px-2 py-1 rounded bg-slate-700 text-slate-300 border border-slate-600 hover:bg-indigo-600/30 hover:text-indigo-400 transition-colors whitespace-nowrap">
+                              Load All
+                            </button>
+                            {opp.bestFade && (
+                              <button onClick={e => { e.stopPropagation(); loadIntoCalculator(opp, opp.bestFade!.fadedName); }}
+                                className="text-[9px] font-bold px-2 py-1 rounded bg-violet-600/20 text-violet-400 border border-violet-500/30 hover:bg-violet-600/40 transition-colors whitespace-nowrap">
+                                Best Fade
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedEvent === opp.eventId && (
+                        <tr>
+                          <td colSpan={6} className="px-3 py-3 bg-slate-900/60">
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                              {opp.outcomes.map(o => (
+                                <div key={o.conditionId} className="bg-slate-800 rounded-lg px-3 py-2 text-xs">
+                                  <div className="text-slate-300 font-medium truncate mb-1">{o.name}</div>
+                                  <div className="flex justify-between text-[10px]">
+                                    <span className="text-slate-500">NO: <span className="text-slate-200 font-mono">{(o.noPrice * 100).toFixed(1)}¢</span></span>
+                                    <span className={o.yesPrice > 0.15 ? 'text-rose-400' : o.yesPrice > 0.05 ? 'text-amber-400' : 'text-emerald-400'}>
+                                      YES: {(o.yesPrice * 100).toFixed(1)}%
+                                    </span>
+                                  </div>
+                                  <div className="text-[9px] text-slate-600 mt-1">Liq: ${o.liquidity.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {!scanning && scanResults.length === 0 && !scanError && (
+          <div className="text-center text-slate-600 text-xs py-4">Hit "Scan Markets" to find live fade arbitrage opportunities on Polymarket.</div>
+        )}
+      </div>
 
       {/* Header */}
       <div className="bg-slate-800/40 rounded-xl border border-slate-700/50 px-5 py-4">

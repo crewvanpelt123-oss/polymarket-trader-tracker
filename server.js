@@ -2,6 +2,29 @@ const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+
+const POSITIONS_FILE = path.join(__dirname, 'hypo-positions.json');
+
+function savePositions() {
+  try {
+    fs.writeFileSync(POSITIONS_FILE, JSON.stringify(hypoPositions, null, 2));
+  } catch (e) {
+    console.error('Failed to save positions:', e.message);
+  }
+}
+
+function loadPositions() {
+  try {
+    if (fs.existsSync(POSITIONS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(POSITIONS_FILE, 'utf8'));
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) {
+    console.error('Failed to load positions:', e.message);
+  }
+  return [];
+}
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -24,7 +47,7 @@ let stats = {
 };
 
 // ── HYPOTHETICAL WALLET ──────────────────────────────────────────────────────
-let hypoPositions = [];
+let hypoPositions = loadPositions();
 const HYPO_BET_SIZE = 100; // fixed $100 per position
 const HYPO_ENTRY_DELAY_MS = 5 * 60 * 1000; // 5 minutes after whale flagged
 const HYPO_STOP_LOSS = 0.75;   // exit if price drops to 75% of entry (–25%)
@@ -125,6 +148,7 @@ function enqueueHypoPosition(whale) {
     last_updated: new Date().toISOString(),
   });
   hypoPositions = hypoPositions.slice(0, 200);
+  savePositions();
 }
 
 // Backfill historical 6hr peak for positions that are already past the window.
@@ -305,6 +329,7 @@ function closeHypoPosition(pos, exitPrice, reason) {
   pos.exit_time = new Date().toISOString();
   pos.exit_reason = reason;
   pos.pnl = (exitPrice - pos.entry_price) * pos.shares;
+  savePositions();
 }
 
 setInterval(updateHypoPositions, 30000);
@@ -876,12 +901,13 @@ app.post('/api/hypo-close', (req, res) => {
   const { id } = req.body;
   const pos = hypoPositions.find(p => p.id === id);
   if (!pos || pos.status === 'closed') return res.json({ success: false });
-  closeHypoPosition(pos, pos.current_price, 'manual');
+  closeHypoPosition(pos, pos.current_price, 'manual'); // savePositions called inside
   res.json({ success: true });
 });
 
 app.post('/api/hypo-clear', (req, res) => {
   hypoPositions = hypoPositions.filter(p => p.status !== 'closed');
+  savePositions();
   res.json({ success: true });
 });
 

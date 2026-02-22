@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Persisted wallet data (written at runtime, not tracked in git)
+hypo-positions.json

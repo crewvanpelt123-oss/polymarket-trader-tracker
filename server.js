@@ -63,12 +63,15 @@ let stats = {
 
 // ── HYPOTHETICAL WALLET ──────────────────────────────────────────────────────
 let hypoPositions = [];
-const HYPO_BET_SIZE = 100; // fixed $100 per position
-const HYPO_ENTRY_DELAY_MS = 5 * 60 * 1000; // 5 minutes after whale flagged
-const HYPO_STOP_LOSS = 0.75;   // exit if price drops to 75% of entry (–25%)
-const HYPO_TARGET_1HR = 2.0;   // 2x within first hour
-const HYPO_TARGET_2HR = 1.5;   // 1.5x within second hour
-const HYPO_FORCE_CLOSE_MS = 3 * 60 * 60 * 1000; // force close after 3 hours
+const HYPO_BET_SIZE = 100;                        // fixed $100 per position
+const HYPO_ENTRY_DELAY_MS = 5 * 60 * 1000;        // 5 minutes after whale flagged
+const HYPO_STOP_LOSS = 0.65;                       // exit if price drops to 65% of entry (–35%)
+const HYPO_TIER1_TARGET = 1.30;                    // sell 25% of original at +30%
+const HYPO_TIER2_TARGET = 1.75;                    // sell 50% of original at +75%
+const HYPO_TIER3_TARGET = 2.0;                     // sell remaining 25% at 2x
+const HYPO_FORCE_CLOSE_MS = 24 * 60 * 60 * 1000;  // force close after 24 hours
+const HYPO_STALE_WINDOW_MS = 6 * 60 * 60 * 1000;  // stale check window: 6 hours
+const HYPO_STALE_THRESHOLD = 0.02;                 // stale if price moves < 2% in 6hr
 
 function makeHypoId() {
   return `hypo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -130,8 +133,13 @@ function makeHypoId() {
       entry_time: new Date(entryTs).toISOString(),
       whale_time: s.whale_time,
       current_price: entryPrice,
-      peak_price_6hr: 0,  // 0 = no price recorded yet within the 6hr window
+      peak_price_6hr: 0,
       shares,
+      shares_remaining: shares,
+      tier1_done: false,
+      tier2_done: false,
+      realized_pnl: 0,
+      price_history: [{ price: entryPrice, time: new Date(entryTs).toISOString() }],
       status: isOpen ? 'open' : 'pending',
       last_updated: new Date().toISOString(),
     });
@@ -144,6 +152,7 @@ function enqueueHypoPosition(whale) {
   if (hypoPositions.some(p => p.id === `hypo-${whale.id}`)) return;
   const entryPrice = whale.buy_price > 0 ? whale.buy_price : 0.01;
   const shares = HYPO_BET_SIZE / entryPrice;
+  const entryTime = new Date(new Date(whale.timestamp).getTime() + HYPO_ENTRY_DELAY_MS).toISOString();
   hypoPositions.unshift({
     id: `hypo-${whale.id}`,
     address: whale.address,
@@ -154,11 +163,16 @@ function enqueueHypoPosition(whale) {
     outcome: whale.outcome || 'YES',
     entry_price: entryPrice,
     whale_price: whale.buy_price,
-    entry_time: new Date(new Date(whale.timestamp).getTime() + HYPO_ENTRY_DELAY_MS).toISOString(),
+    entry_time: entryTime,
     whale_time: whale.timestamp,
     current_price: entryPrice,
-    peak_price_6hr: 0,  // 0 = no price recorded yet within the 6hr window
+    peak_price_6hr: 0,
     shares,
+    shares_remaining: shares,
+    tier1_done: false,
+    tier2_done: false,
+    realized_pnl: 0,
+    price_history: [{ price: entryPrice, time: entryTime }],
     status: 'pending',
     last_updated: new Date().toISOString(),
   });
@@ -313,37 +327,81 @@ async function updateHypoPositions() {
 
     pos.last_updated = new Date().toISOString();
 
+    // Track price history for stale detection (keep last 24hrs of snapshots)
+    if (!pos.price_history) pos.price_history = [];
+    pos.price_history.push({ price: pos.current_price, time: new Date().toISOString() });
+    if (pos.price_history.length > 200) pos.price_history = pos.price_history.slice(-200);
+
+    // Ensure new fields exist on old positions loaded from DB
+    if (pos.shares_remaining === undefined) pos.shares_remaining = pos.shares;
+    if (pos.tier1_done === undefined) pos.tier1_done = false;
+    if (pos.tier2_done === undefined) pos.tier2_done = false;
+    if (pos.realized_pnl === undefined) pos.realized_pnl = 0;
+
     // ── Exit rules ──────────────────────────────────────────────────────────
     const ratio = pos.current_price / pos.entry_price;
 
-    // Stop loss: –25%
+    // Stop loss: –35% — full close
     if (ratio <= HYPO_STOP_LOSS) {
       closeHypoPosition(pos, pos.current_price, 'stop_loss');
       continue;
     }
-    // 2x within hour 1
-    if (ageMs <= 60 * 60 * 1000 && ratio >= HYPO_TARGET_1HR) {
-      closeHypoPosition(pos, pos.current_price, '2x_1hr');
+
+    // Tier 1: sell 25% of original shares at +30%
+    if (!pos.tier1_done && ratio >= HYPO_TIER1_TARGET) {
+      const tier1Shares = pos.shares * 0.25;
+      pos.realized_pnl += (pos.current_price - pos.entry_price) * tier1Shares;
+      pos.shares_remaining -= tier1Shares;
+      pos.tier1_done = true;
+      console.log(`Tier 1 exit for ${pos.username} @ ${(pos.current_price * 100).toFixed(0)}¢`);
+      savePositions();
+    }
+
+    // Tier 2: sell 50% of original shares at +75%
+    if (!pos.tier2_done && ratio >= HYPO_TIER2_TARGET) {
+      const tier2Shares = pos.shares * 0.50;
+      pos.realized_pnl += (pos.current_price - pos.entry_price) * tier2Shares;
+      pos.shares_remaining -= tier2Shares;
+      pos.tier2_done = true;
+      console.log(`Tier 2 exit for ${pos.username} @ ${(pos.current_price * 100).toFixed(0)}¢`);
+      savePositions();
+    }
+
+    // Tier 3: close remaining 25% at 2x
+    if (pos.tier1_done && pos.tier2_done && ratio >= HYPO_TIER3_TARGET) {
+      closeHypoPosition(pos, pos.current_price, '2x_moonshot');
       continue;
     }
-    // 1.5x within hour 2
-    if (ageMs > 60 * 60 * 1000 && ageMs <= 2 * 60 * 60 * 1000 && ratio >= HYPO_TARGET_2HR) {
-      closeHypoPosition(pos, pos.current_price, '1.5x_2hr');
-      continue;
-    }
-    // Force close after 3 hours
+
+    // Force close after 24 hours
     if (ageMs >= HYPO_FORCE_CLOSE_MS) {
       closeHypoPosition(pos, pos.current_price, 'time_exit');
+      continue;
+    }
+
+    // Stale close: price hasn't moved >2% in 6 hours
+    if (pos.price_history.length >= 2) {
+      const staleWindowStart = Date.now() - HYPO_STALE_WINDOW_MS;
+      const oldSnapshot = pos.price_history.find(h => new Date(h.time).getTime() >= staleWindowStart);
+      if (oldSnapshot) {
+        const drift = Math.abs(pos.current_price - oldSnapshot.price) / oldSnapshot.price;
+        if (drift < HYPO_STALE_THRESHOLD) {
+          closeHypoPosition(pos, pos.current_price, 'stale_exit');
+          continue;
+        }
+      }
     }
   }
 }
 
 function closeHypoPosition(pos, exitPrice, reason) {
+  // Add final realized PnL from remaining shares
+  const finalPnl = (exitPrice - pos.entry_price) * (pos.shares_remaining !== undefined ? pos.shares_remaining : pos.shares);
   pos.status = 'closed';
   pos.exit_price = exitPrice;
   pos.exit_time = new Date().toISOString();
   pos.exit_reason = reason;
-  pos.pnl = (exitPrice - pos.entry_price) * pos.shares;
+  pos.pnl = (pos.realized_pnl || 0) + finalPnl;
   savePositions();
 }
 

@@ -9,12 +9,12 @@ interface HypotheticalWalletProps {
 
 function exitLabel(reason?: string) {
   switch (reason) {
-    case 'stop_loss':  return { text: 'Stop Loss', color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' };
-    case '2x_1hr':    return { text: '2× in 1hr', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
-    case '1.5x_2hr':  return { text: '1.5× in 2hr', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
-    case 'time_exit': return { text: '3hr Exit', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
-    case 'manual':    return { text: 'Manual', color: 'text-slate-400 bg-slate-700/50 border-slate-600/30' };
-    default:          return { text: 'Closed', color: 'text-slate-400 bg-slate-700/50 border-slate-600/30' };
+    case 'stop_loss':    return { text: 'Stop Loss –35%', color: 'text-rose-400 bg-rose-500/10 border-rose-500/30' };
+    case '2x_moonshot': return { text: '2× Moonshot', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' };
+    case 'time_exit':   return { text: '24hr Exit', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' };
+    case 'stale_exit':  return { text: 'Stale (6hr flat)', color: 'text-orange-400 bg-orange-500/10 border-orange-500/30' };
+    case 'manual':      return { text: 'Manual', color: 'text-slate-400 bg-slate-700/50 border-slate-600/30' };
+    default:            return { text: 'Closed', color: 'text-slate-400 bg-slate-700/50 border-slate-600/30' };
   }
 }
 
@@ -44,7 +44,7 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
     const isClosed  = pos.status === 'closed';
 
     const currentReturn = isOpen
-      ? (pos.current_price - pos.entry_price) * pos.shares
+      ? (pos.current_price - pos.entry_price) * (pos.shares_remaining ?? pos.shares) + (pos.realized_pnl ?? 0)
       : isClosed ? (pos.pnl || 0) : 0;
 
     const currentReturnPct = pos.entry_price > 0
@@ -117,6 +117,13 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
                 <div className={`text-[10px] font-mono ${currentReturnPct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                   {currentReturnPct >= 0 ? '+' : ''}{currentReturnPct.toFixed(1)}%
                 </div>
+                {isOpen && (
+                  <div className="flex gap-1 mt-1">
+                    <span className={`text-[8px] font-bold px-1 py-0.5 rounded border ${pos.tier1_done ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' : 'text-slate-600 bg-slate-800 border-slate-700'}`}>T1</span>
+                    <span className={`text-[8px] font-bold px-1 py-0.5 rounded border ${pos.tier2_done ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' : 'text-slate-600 bg-slate-800 border-slate-700'}`}>T2</span>
+                    <span className={`text-[8px] font-bold px-1 py-0.5 rounded border ${(pos.tier1_done && pos.tier2_done) ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-600 bg-slate-800 border-slate-700'}`}>T3</span>
+                  </div>
+                )}
                 {isClosed && (
                   <div className="mt-1 space-y-0.5">
                     {pos.exit_time && (
@@ -195,14 +202,18 @@ const HypotheticalWallet: React.FC<HypotheticalWalletProps> = ({ positions, onCl
       {/* Parameters card */}
       <div className="mb-4 bg-slate-800/40 rounded-xl border border-slate-700/50 px-5 py-4">
         <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Strategy Parameters</div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-[11px]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-[11px] mb-3">
           <div><span className="text-slate-500">Entry Delay</span><div className="text-white font-bold mt-0.5">5 minutes</div></div>
           <div><span className="text-slate-500">Bet Size</span><div className="text-white font-bold mt-0.5">$100 / position</div></div>
-          <div><span className="text-slate-500">Stop Loss</span><div className="text-rose-400 font-bold mt-0.5">–25%</div></div>
-          <div><span className="text-slate-500">Target (Hr 1)</span><div className="text-emerald-400 font-bold mt-0.5">2× (sell)</div></div>
-          <div><span className="text-slate-500">Target (Hr 2)</span><div className="text-emerald-400 font-bold mt-0.5">1.5× (sell)</div></div>
+          <div><span className="text-slate-500">Stop Loss</span><div className="text-rose-400 font-bold mt-0.5">–35%</div></div>
+          <div><span className="text-slate-500">Force Close</span><div className="text-amber-400 font-bold mt-0.5">24 hours</div></div>
         </div>
-        <div className="text-[10px] text-slate-600 mt-2">After hour 3 — force close regardless of price.</div>
+        <div className="grid grid-cols-3 gap-4 text-[11px] border-t border-slate-700/40 pt-3">
+          <div><span className="text-slate-500">Tier 1</span><div className="text-emerald-400 font-bold mt-0.5">+30% → sell 25%</div></div>
+          <div><span className="text-slate-500">Tier 2</span><div className="text-emerald-400 font-bold mt-0.5">+75% → sell 50%</div></div>
+          <div><span className="text-slate-500">Tier 3</span><div className="text-emerald-400 font-bold mt-0.5">2× → sell 25%</div></div>
+        </div>
+        <div className="text-[10px] text-slate-600 mt-2">Stale close: force exit if price moves less than 2% in any 6-hour window.</div>
       </div>
 
       {/* Stats row */}

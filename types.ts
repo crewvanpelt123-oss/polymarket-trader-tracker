@@ -98,10 +98,15 @@ export interface HypotheticalPosition {
   current_price: number;
   peak_price_6hr: number;        // highest price in first 6 hours
   shares: number;                // $100 / entry_price  (fixed $100 hypothetical bet)
+  shares_remaining?: number;     // shares still held after partial exits
+  tier1_done?: boolean;          // 25% sold at +30%
+  tier2_done?: boolean;          // 50% sold at +75%
+  realized_pnl?: number;         // PnL locked in from tier exits
+  price_history?: { price: number; time: string }[];
   status: 'pending' | 'open' | 'closed';
   exit_price?: number;
   exit_time?: string;
-  exit_reason?: string;          // 'stop_loss' | '2x_1hr' | '1.5x_2hr' | 'time_exit' | 'manual'
-  pnl?: number;                  // realized if closed
+  exit_reason?: string;          // 'stop_loss' | '2x_moonshot' | 'time_exit' | 'stale_exit' | 'manual'
+  pnl?: number;                  // total realized PnL when closed
   last_updated: string;
 }

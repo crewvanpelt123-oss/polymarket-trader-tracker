@@ -997,9 +997,28 @@ app.get('/api/fade-scan', async (req, res) => {
     if (!r.ok) return res.status(502).json({ error: 'Polymarket API error' });
     const events = await r.json();
 
+    const SPORTS_KEYWORDS = [
+      'nfl', 'nba', 'nhl', 'mlb', 'nascar', 'mls', 'ufc', 'pga', 'ncaa',
+      'super bowl', 'world series', 'stanley cup', 'nba finals', 'march madness',
+      'football', 'basketball', 'baseball', 'hockey', 'soccer', 'tennis', 'golf',
+      'boxing', 'mma', 'wrestling', 'formula 1', 'f1', 'motogp', 'cricket',
+      'rugby', 'afl', 'nrl', 'premier league', 'la liga', 'bundesliga', 'serie a',
+      'champions league', 'world cup', 'euros', 'copa america', 'tour de france',
+      'wimbledon', 'us open', 'french open', 'australian open', 'grand slam',
+      'playoff', 'playoffs', 'championship', 'league', 'tournament', 'match',
+      'game 1', 'game 2', 'game 3', 'game 4', 'game 5', 'game 6', 'game 7',
+      'quarterback', 'pitcher', 'roster', 'draft pick', 'mvp', 'rookie',
+    ];
+
+    const isSportsEvent = (event) => {
+      const text = `${event.title || ''} ${event.slug || ''} ${(event.tags || []).map(t => t.label || t.slug || '').join(' ')}`.toLowerCase();
+      return SPORTS_KEYWORDS.some(kw => text.includes(kw));
+    };
+
     const opportunities = [];
 
     for (const event of (Array.isArray(events) ? events : [])) {
+      if (isSportsEvent(event)) continue;
       const markets = event.markets || [];
       if (markets.length < minOutcomes) continue;
 

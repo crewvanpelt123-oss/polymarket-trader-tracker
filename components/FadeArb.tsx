@@ -104,6 +104,31 @@ const FadeArb: React.FC = () => {
   const [scanMaxBlackSwan, setScanMaxBlackSwan] = useState('10');
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
 
+  const TIME_PATTERNS = [
+    /\bhow long\b/i, /\bwhen will\b/i, /\bwhen does\b/i, /\bwhen is\b/i,
+    /\bby when\b/i, /\bwhat date\b/i, /\bwhat day\b/i, /\bwhat month\b/i,
+    /\bwhat year\b/i, /\bwhat time\b/i, /\bhow many days\b/i,
+    /\bhow many weeks\b/i, /\bhow many months\b/i, /\bhow soon\b/i,
+    /\babove\b/i, /\bbelow\b/i, /\bexceed\b/i, /\breach\b/i,
+    /\bon (january|february|march|april|may|june|july|august|september|october|november|december)/i,
+    /\bby (january|february|march|april|may|june|july|august|september|october|november|december)/i,
+    /\bon [A-Z][a-z]+ \d+\b/,
+  ];
+
+  const CRYPTO_PRICE_KEYWORDS = [
+    'bitcoin above', 'bitcoin below', 'ethereum above', 'ethereum below',
+    'solana above', 'solana below', 'btc above', 'btc below',
+    'eth above', 'eth below', 'xrp above', 'xrp below',
+    'above ___', 'below ___',
+  ];
+
+  const isExcludedEvent = (title: string) => {
+    const t = title.toLowerCase();
+    if (CRYPTO_PRICE_KEYWORDS.some(kw => t.includes(kw))) return true;
+    if (TIME_PATTERNS.some(p => p.test(title))) return true;
+    return false;
+  };
+
   const runScan = useCallback(async () => {
     setScanning(true);
     setScanError('');
@@ -117,7 +142,10 @@ const FadeArb: React.FC = () => {
       const res = await fetch(`/api/fade-scan?${params}`);
       if (!res.ok) throw new Error('Server error');
       const data = await res.json();
-      setScanResults(data.opportunities || []);
+      const filtered = (data.opportunities || []).filter(
+        (opp: FadeOpportunity) => !isExcludedEvent(opp.eventTitle)
+      );
+      setScanResults(filtered);
     } catch (e: any) {
       setScanError(e.message || 'Failed to scan');
     } finally {

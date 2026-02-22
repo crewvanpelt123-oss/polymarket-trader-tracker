@@ -5,6 +5,7 @@ import TradeFeed from './components/TradeFeed';
 import ScannerFeed from './components/ScannerFeed';
 import ClusterFeed from './components/ClusterFeed';
 import HypotheticalWallet from './components/HypotheticalWallet';
+import FadeArb from './components/FadeArb';
 import DashboardHeader from './components/DashboardHeader';
 import { analyzeTraderStrategy } from './services/gemini';
 
@@ -17,7 +18,7 @@ const TRADES_STORAGE_KEY = 'poly_tracker_trades_cache';
 const SETTINGS_STORAGE_KEY = 'poly_tracker_settings';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<'traders' | 'scanner' | 'clusters' | 'hypo'>('traders');
+  const [currentView, setCurrentView] = useState<'traders' | 'scanner' | 'clusters' | 'hypo' | 'fade'>('traders');
   const [traders, setTraders] = useState<Trader[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [flaggedUsers, setFlaggedUsers] = useState<FlaggedUser[]>([]);
@@ -297,6 +298,8 @@ const App: React.FC = () => {
             <ScannerFeed flaggedUsers={flaggedUsers} recentRejects={recentRejects} scanStats={scanStats} windowStartTime={'Server Start'} onTrack={addTrader} onDismiss={dismissWhale} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
           ) : currentView === 'clusters' ? (
             <ClusterFeed clusters={detectedClusters} clusterNearMisses={clusterNearMisses} clusterStats={clusterStats} onDismiss={dismissCluster} onTrack={addTrader} isAlreadyTracked={(addr) => traders.some(t => t.address.toLowerCase() === addr.toLowerCase())} />
+          ) : currentView === 'fade' ? (
+            <FadeArb />
           ) : (
             <HypotheticalWallet
               positions={hypoPositions}

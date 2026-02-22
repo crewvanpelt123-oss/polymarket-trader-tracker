@@ -104,28 +104,38 @@ const FadeArb: React.FC = () => {
   const [scanMaxBlackSwan, setScanMaxBlackSwan] = useState('10');
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
 
-  const TIME_PATTERNS = [
-    /\bhow long\b/i, /\bwhen will\b/i, /\bwhen does\b/i, /\bwhen is\b/i,
-    /\bby when\b/i, /\bwhat date\b/i, /\bwhat day\b/i, /\bwhat month\b/i,
-    /\bwhat year\b/i, /\bwhat time\b/i, /\bhow many days\b/i,
-    /\bhow many weeks\b/i, /\bhow many months\b/i, /\bhow soon\b/i,
-    /\babove\b/i, /\bbelow\b/i, /\bexceed\b/i, /\breach\b/i,
-    /\bon (january|february|march|april|may|june|july|august|september|october|november|december)/i,
-    /\bby (january|february|march|april|may|june|july|august|september|october|november|december)/i,
-    /\bon [A-Z][a-z]+ \d+\b/,
-  ];
-
-  const CRYPTO_PRICE_KEYWORDS = [
-    'bitcoin above', 'bitcoin below', 'ethereum above', 'ethereum below',
-    'solana above', 'solana below', 'btc above', 'btc below',
-    'eth above', 'eth below', 'xrp above', 'xrp below',
-    'above ___', 'below ___',
-  ];
-
   const isExcludedEvent = (title: string) => {
     const t = title.toLowerCase();
-    if (CRYPTO_PRICE_KEYWORDS.some(kw => t.includes(kw))) return true;
-    if (TIME_PATTERNS.some(p => p.test(title))) return true;
+
+    // Crypto price events
+    const CRYPTO_PRICE = ['above', 'below', 'exceed', 'hit $', 'reach $', 'what price', 'price will'];
+    const CRYPTO_ASSETS = ['bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'xrp', 'crypto', 'doge', 'bnb'];
+    if (CRYPTO_ASSETS.some(a => t.includes(a)) && CRYPTO_PRICE.some(p => t.includes(p))) return true;
+
+    // Time/date-based events — catch truncated titles with "by..." or "on..." or "___"
+    if (t.includes('___')) return true;           // "strikes Iran by ___"
+    if (t.includes('by...')) return true;          // "out by...?"
+    if (t.includes('on...')) return true;
+    if (/\bby \d{4}\b/.test(t)) return true;       // "by 2026"
+    if (/\bin \d{4}\b/.test(t)) return true;       // "in 2026"
+    if (/\bhit \$/.test(t)) return true;
+    if (/\bstrike\b.+\bon\b/i.test(title)) return true;  // "Will X strike Y on [date]"
+    if (/\bstrike\b.+\bby\b/i.test(title)) return true;  // "Will X strike Y by [date]"
+    if (/\bby\b.+\?\s*$/.test(t) && t.includes('strike')) return true;
+
+    // Explicit time phrases
+    const TIME_PHRASES = [
+      'how long', 'when will', 'when does', 'when is', 'by when',
+      'what date', 'what day', 'what month', 'what year', 'what time',
+      'how many days', 'how many weeks', 'how many months', 'how soon',
+      'first day', 'last day',
+    ];
+    if (TIME_PHRASES.some(p => t.includes(p))) return true;
+
+    // Month/date patterns
+    const MONTHS = 'january|february|march|april|may|june|july|august|september|october|november|december';
+    if (new RegExp(`\\b(by|on|before|after|in|during)\\s+(${MONTHS})`, 'i').test(title)) return true;
+
     return false;
   };
 

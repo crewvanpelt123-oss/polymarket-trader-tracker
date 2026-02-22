@@ -38,13 +38,16 @@ function calcBasket(outcomes: Outcome[]) {
   // Black swan: prob that one of the faded outcomes wins
   const faded = outcomes.filter(o => o.faded);
   const blackSwanProb = faded.reduce((s, o) => s + o.yesPrice, 0);
-  return { included, K, cost, payout, netProfit, roi, blackSwanProb };
+  // Reinvested ROI: (new payout - original full cost) / original full cost
+  const originalCost = outcomes.reduce((s, o) => s + o.noPrice, 0);
+  const reinvestedRoi = originalCost > 0 ? ((payout - originalCost) / originalCost) * 100 : null;
+  return { included, K, cost, payout, netProfit, roi, blackSwanProb, reinvestedRoi, originalCost };
 }
 
 // Brute force: try every combination of fading 1, 2, or 3 outcomes
 function bruteForce(outcomes: Outcome[], maxBlackSwan: number) {
   const n = outcomes.length;
-  const results: { faded: string[]; roi: number; cost: number; netProfit: number; blackSwanProb: number; K: number }[] = [];
+  const results: { faded: string[]; roi: number; cost: number; netProfit: number; blackSwanProb: number; K: number; reinvestedRoi: number | null }[] = [];
 
   const test = (fadedIndices: number[]) => {
     const modified = outcomes.map((o, i) => ({ ...o, faded: fadedIndices.includes(i) }));
@@ -59,6 +62,7 @@ function bruteForce(outcomes: Outcome[], maxBlackSwan: number) {
       netProfit: res.netProfit,
       blackSwanProb: res.blackSwanProb,
       K: res.K,
+      reinvestedRoi: res.reinvestedRoi,
     });
   };
 
@@ -464,7 +468,7 @@ const FadeArb: React.FC = () => {
           {basket ? (
             <div className="space-y-3">
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-3 text-center">
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Total Cost</div>
                   <div className="text-lg font-bold text-white mt-1">${basket.cost.toFixed(3)}</div>
@@ -475,8 +479,10 @@ const FadeArb: React.FC = () => {
                   <div className="text-lg font-bold text-white mt-1">${basket.payout.toFixed(2)}</div>
                   <div className="text-[9px] text-slate-600">{basket.K - 1} × $1.00</div>
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div className={`rounded-lg border p-3 text-center ${basket.roi > 0 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">ROI</div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Standard ROI</div>
                   <div className={`text-lg font-bold mt-1 ${basket.roi > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {basket.roi > 0 ? '+' : ''}{basket.roi.toFixed(1)}%
                   </div>
@@ -484,6 +490,22 @@ const FadeArb: React.FC = () => {
                     {basket.netProfit > 0 ? '+' : ''}${basket.netProfit.toFixed(3)} net
                   </div>
                 </div>
+                {basket.reinvestedRoi !== null && outcomes.some(o => o.faded) ? (
+                  <div className="rounded-lg border bg-violet-500/10 border-violet-500/30 p-3 text-center">
+                    <div className="text-[10px] text-slate-500 font-bold uppercase">Reinvested ROI</div>
+                    <div className={`text-lg font-bold mt-1 ${basket.reinvestedRoi > 0 ? 'text-violet-400' : 'text-rose-400'}`}>
+                      {basket.reinvestedRoi > 0 ? '+' : ''}{basket.reinvestedRoi.toFixed(1)}%
+                    </div>
+                    <div className="text-[9px] text-violet-600">
+                      Δ {basket.reinvestedRoi > basket.roi ? '+' : ''}{(basket.reinvestedRoi - basket.roi).toFixed(1)}% vs standard
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-700/30 bg-slate-800/20 p-3 text-center flex flex-col items-center justify-center">
+                    <div className="text-[10px] text-slate-600 font-bold uppercase">Reinvested ROI</div>
+                    <div className="text-[9px] text-slate-700 mt-1">Fade an outcome to see</div>
+                  </div>
+                )}
               </div>
 
               {/* Black Swan */}
@@ -574,6 +596,8 @@ const FadeArb: React.FC = () => {
                     <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Cost</th>
                     <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Net Profit</th>
                     <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">ROI</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-violet-500 uppercase">Reinvested ROI</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Delta</th>
                     <th className="px-3 py-3 text-left text-[10px] font-bold text-slate-500 uppercase">Black Swan</th>
                     <th className="px-3 py-3"></th>
                   </tr>
@@ -599,6 +623,20 @@ const FadeArb: React.FC = () => {
                           {r.roi.toFixed(1)}%
                         </span>
                         {i === 0 && <span className="ml-1 text-[8px] text-emerald-600 font-bold uppercase">Best</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        {r.reinvestedRoi !== null && r.faded.length > 0 ? (
+                          <span className="text-xs font-bold font-mono text-violet-400">
+                            {r.reinvestedRoi > 0 ? '+' : ''}{r.reinvestedRoi.toFixed(1)}%
+                          </span>
+                        ) : <span className="text-slate-600 text-xs">—</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        {r.reinvestedRoi !== null && r.faded.length > 0 ? (
+                          <span className={`text-xs font-bold font-mono ${r.reinvestedRoi - r.roi > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {r.reinvestedRoi - r.roi > 0 ? '+' : ''}{(r.reinvestedRoi - r.roi).toFixed(1)}%
+                          </span>
+                        ) : <span className="text-slate-600 text-xs">—</span>}
                       </td>
                       <td className="px-3 py-3">
                         <span className={`text-xs font-mono ${r.blackSwanProb > 0.05 ? 'text-amber-400' : 'text-emerald-400'}`}>

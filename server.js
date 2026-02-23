@@ -4,6 +4,33 @@ const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
 
+// Fetch with a timeout — prevents hung requests from stalling the server
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Run at most `concurrency` async tasks at a time
+async function pLimit(tasks, concurrency) {
+  const results = [];
+  let i = 0;
+  async function worker() {
+    while (i < tasks.length) {
+      const idx = i++;
+      results[idx] = await tasks[idx]();
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 const db = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
@@ -192,7 +219,7 @@ async function backfillPeak(pos) {
   // First resolve conditionId if missing by checking the whale's own trades
   if (!pos.conditionId) {
     try {
-      const r = await fetch(`https://data-api.polymarket.com/trades?user=${pos.address}&limit=100`);
+      const r = await fetchWithTimeout(`https://data-api.polymarket.com/trades?user=${pos.address}&limit=100`);
       if (r.ok) {
         const trades = await r.json();
         const match = trades.find(tr =>
@@ -217,7 +244,7 @@ async function backfillPeak(pos) {
     const limit = 500;
     // Page through trades until we've passed the entry window start
     while (true) {
-      const r = await fetch(
+      const r = await fetchWithTimeout(
         `https://data-api.polymarket.com/trades?conditionId=${pos.conditionId}&limit=${limit}&offset=${offset}`
       );
       if (!r.ok) break;
@@ -283,7 +310,7 @@ async function updateHypoPositions() {
     try {
       if (pos.conditionId) {
         // Primary: gamma API with conditionId
-        const r = await fetch(`https://gamma-api.polymarket.com/markets?conditionId=${pos.conditionId}`);
+        const r = await fetchWithTimeout(`https://gamma-api.polymarket.com/markets?conditionId=${pos.conditionId}`);
         if (r.ok) {
           const data = await r.json();
           const market = Array.isArray(data) ? data[0] : data;
@@ -301,7 +328,7 @@ async function updateHypoPositions() {
         }
       } else {
         // Fallback: look at the whale's recent trades on this market title to infer price movement
-        const r = await fetch(`https://data-api.polymarket.com/trades?user=${pos.address}&limit=50`);
+        const r = await fetchWithTimeout(`https://data-api.polymarket.com/trades?user=${pos.address}&limit=50`);
         if (r.ok) {
           const trades = await r.json();
           // Find the most recent trade on the same market
@@ -593,7 +620,7 @@ async function sendDiscordAlert(whale) {
 
 async function runScanner() {
   try {
-    const res = await fetch(`https://data-api.polymarket.com/trades?limit=${TRADES_LIMIT}`);
+    const res = await fetchWithTimeout(`https://data-api.polymarket.com/trades?limit=${TRADES_LIMIT}`);
     if (!res.ok) return;
     const recentTrades = await res.json();
 
@@ -629,7 +656,7 @@ async function runScanner() {
         if (!userAddress) continue;
 
         try {
-          const portRes = await fetch(`https://data-api.polymarket.com/positions?user=${userAddress}`);
+          const portRes = await fetchWithTimeout(`https://data-api.polymarket.com/positions?user=${userAddress}`);
           if (!portRes.ok) continue;
           const positions = await portRes.json();
 
@@ -692,7 +719,7 @@ runScanner();
 async function runClusterScanner() {
   try {
     const CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
-    const res = await fetch(`https://data-api.polymarket.com/trades?limit=200`);
+    const res = await fetchWithTimeout(`https://data-api.polymarket.com/trades?limit=200`);
     if (!res.ok) return;
     const recentTrades = await res.json();
 
@@ -772,39 +799,42 @@ async function runClusterScanner() {
       if (dismissedClusterIds.has(clusterId)) continue;
       if (detectedClusters.some(c => c.id === clusterId)) continue;
 
-      // Run newness check and funding source check in parallel — shared funder
-      // is the strongest signal and must not be gated behind new-wallet %.
-      const [walletNewness, fundingResults] = await Promise.all([
-        Promise.all(
-          Array.from(walletMap.keys()).map(async (addr) => {
-            try {
-              const r = await fetch(`https://data-api.polymarket.com/positions?user=${addr}`);
-              if (!r.ok) return { addr, isNew: false };
-              const positions = await r.json();
-              return { addr, isNew: positions.length < 3 };
-            } catch {
-              return { addr, isNew: false };
-            }
-          })
-        ),
-        Promise.all(
-          Array.from(walletMap.keys()).map(async (addr) => {
-            try {
-              const r = await fetch(`https://data-api.polymarket.com/activity?user=${addr}&limit=50`);
-              if (!r.ok) return { addr, funder: null };
-              const activity = await r.json();
-              // Find the earliest USDC deposit — sender is the funding source
-              const deposits = (Array.isArray(activity) ? activity : [])
-                .filter(a => a.type === 'DEPOSIT' || a.type === 'TRANSFER_IN')
-                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-              const funder = deposits.length > 0 ? (deposits[0].from || deposits[0].sender || null) : null;
-              return { addr, funder };
-            } catch {
-              return { addr, funder: null };
-            }
-          })
-        )
-      ]);
+      // Run newness check and funding source check with limited concurrency (4 at a time)
+      // to avoid hammering the API and exhausting server connections.
+      const walletAddrs = Array.from(walletMap.keys());
+
+      const walletNewness = await pLimit(
+        walletAddrs.map(addr => async () => {
+          try {
+            const r = await fetchWithTimeout(`https://data-api.polymarket.com/positions?user=${addr}`);
+            if (!r.ok) return { addr, isNew: false };
+            const positions = await r.json();
+            return { addr, isNew: positions.length < 3 };
+          } catch {
+            return { addr, isNew: false };
+          }
+        }),
+        4
+      );
+
+      const fundingResults = await pLimit(
+        walletAddrs.map(addr => async () => {
+          try {
+            const r = await fetchWithTimeout(`https://data-api.polymarket.com/activity?user=${addr}&limit=50`);
+            if (!r.ok) return { addr, funder: null };
+            const activity = await r.json();
+            // Find the earliest USDC deposit — sender is the funding source
+            const deposits = (Array.isArray(activity) ? activity : [])
+              .filter(a => a.type === 'DEPOSIT' || a.type === 'TRANSFER_IN')
+              .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            const funder = deposits.length > 0 ? (deposits[0].from || deposits[0].sender || null) : null;
+            return { addr, funder };
+          } catch {
+            return { addr, funder: null };
+          }
+        }),
+        4
+      );
 
       const newWalletCount = walletNewness.filter(w => w.isNew).length;
       const newWalletPct = (newWalletCount / walletMap.size) * 100;
@@ -849,7 +879,7 @@ async function runClusterScanner() {
       let marketTitle = trades[0]?.title || '';
       let marketSlug = trades[0]?.slug || '';
       try {
-        const mRes = await fetch(`https://gamma-api.polymarket.com/markets?conditionId=${conditionId}`);
+        const mRes = await fetchWithTimeout(`https://gamma-api.polymarket.com/markets?conditionId=${conditionId}`);
         if (mRes.ok) {
           const mData = await mRes.json();
           const market = Array.isArray(mData) ? mData[0] : mData;
@@ -993,7 +1023,7 @@ app.get('/api/fade-scan', async (req, res) => {
 
     // Fetch active events with multiple markets
     const url = `https://gamma-api.polymarket.com/events?active=true&closed=false&limit=200&order=volume24hr&ascending=false`;
-    const r = await fetch(url);
+    const r = await fetchWithTimeout(url, {}, 15000);
     if (!r.ok) return res.status(502).json({ error: 'Polymarket API error' });
     const events = await r.json();
 

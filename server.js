@@ -650,8 +650,9 @@ async function runScanner() {
         continue;
       }
 
-      if (t.side === 'BUY' && price <= 0.20 && tradeUsdcSpent >= 2000) {
-        stats.lowPriceMatches++;
+      stats.tradesChecked++;
+
+      if (t.side === 'BUY' && price <= 0.20) {
         const userAddress = t.proxyWallet || t.user;
         if (!userAddress) continue;
 
@@ -666,7 +667,11 @@ async function runScanner() {
             return val > max ? val : max;
           }, 0);
 
-          if (positions.length < 6 && pnlValue < 30000 && pnlValue > -30000) {
+          // Flag if any single position is worth >= $2,000
+          const hasLargePosition = maxPosValue >= 2000;
+
+          if (hasLargePosition && pnlValue < 30000 && pnlValue > -30000) {
+            stats.lowPriceMatches++;
             const whale = {
               id: hash,
               address: userAddress,
@@ -687,10 +692,9 @@ async function runScanner() {
             await sendDiscordAlert(whale);
           } else {
             const failReasons = [];
-            if (positions.length >= 6) failReasons.push(`Too many positions (${positions.length})`);
+            if (!hasLargePosition) failReasons.push(`Max position too small ($${maxPosValue.toFixed(0)})`);
             if (pnlValue >= 30000) failReasons.push(`PNL too high ($${pnlValue.toLocaleString()})`);
             if (pnlValue <= -30000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
-            if (tradeUsdcSpent < 2000) failReasons.push(`Trade too small ($${tradeUsdcSpent.toFixed(0)} USDC spent)`);
             recentRejects = [{
               address: userAddress,
               username: t.name || t.pseudonym || userAddress.slice(0, 10) + '...',
@@ -705,7 +709,6 @@ async function runScanner() {
           }
         } catch (e) {}
       }
-      stats.tradesChecked++;
     }
     stats.lastScanTime = new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' });
   } catch (err) {

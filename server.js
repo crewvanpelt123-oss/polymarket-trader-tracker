@@ -407,9 +407,11 @@ async function updateHypoPositions() {
     }
 
     // Stale close: price hasn't moved >2% in 6 hours
-    if (pos.price_history.length >= 2) {
+    // Only applies once the position is at least 6 hours old.
+    if (pos.price_history.length >= 2 && ageMs >= HYPO_STALE_WINDOW_MS) {
       const staleWindowStart = Date.now() - HYPO_STALE_WINDOW_MS;
-      const oldSnapshot = pos.price_history.find(h => new Date(h.time).getTime() >= staleWindowStart);
+      // Find the newest snapshot that is at or before the 6hr window start
+      const oldSnapshot = [...pos.price_history].reverse().find(h => new Date(h.time).getTime() <= staleWindowStart);
       if (oldSnapshot) {
         const drift = Math.abs(pos.current_price - oldSnapshot.price) / oldSnapshot.price;
         if (drift < HYPO_STALE_THRESHOLD) {

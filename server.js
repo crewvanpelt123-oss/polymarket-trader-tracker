@@ -645,9 +645,25 @@ async function runScanner() {
       const title = t.title || "";
 
       const CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
-      const isCryptoMarket = CRYPTO_KEYWORDS.some(kw => title.toLowerCase().includes(kw));
+      const SPORTS_KEYWORDS = [
+        'nfl', 'nba', 'nhl', 'mlb', 'nascar', 'mls', 'ufc', 'pga', 'ncaa',
+        'super bowl', 'world series', 'stanley cup', 'nba finals', 'march madness',
+        'football', 'basketball', 'baseball', 'hockey', 'soccer', 'tennis', 'golf',
+        'boxing', 'mma', 'wrestling', 'formula 1', 'f1', 'motogp', 'cricket',
+        'rugby', 'afl', 'nrl', 'premier league', 'la liga', 'bundesliga', 'serie a',
+        'champions league', 'world cup', 'euros', 'copa america', 'tour de france',
+        'wimbledon', 'us open', 'french open', 'australian open', 'grand slam',
+        'playoff', 'playoffs', 'championship', 'tournament',
+        'quarterback', 'pitcher', 'roster', 'draft pick', 'mvp', 'rookie',
+      ];
+      const ELON_KEYWORDS = ['elon', 'musk', 'spacex', 'tesla', 'doge department', 'department of government efficiency', 'doge spending'];
 
-      if (isCryptoMarket) {
+      const titleLower = title.toLowerCase();
+      const isExcluded = CRYPTO_KEYWORDS.some(kw => titleLower.includes(kw))
+        || SPORTS_KEYWORDS.some(kw => titleLower.includes(kw))
+        || ELON_KEYWORDS.some(kw => titleLower.includes(kw));
+
+      if (isExcluded) {
         stats.excludedMarkets++;
         continue;
       }
@@ -723,7 +739,20 @@ runScanner();
 
 async function runClusterScanner() {
   try {
-    const CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
+    const CLUSTER_CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
+    const CLUSTER_SPORTS_KEYWORDS = [
+      'nfl', 'nba', 'nhl', 'mlb', 'nascar', 'mls', 'ufc', 'pga', 'ncaa',
+      'super bowl', 'world series', 'stanley cup', 'nba finals', 'march madness',
+      'football', 'basketball', 'baseball', 'hockey', 'soccer', 'tennis', 'golf',
+      'boxing', 'mma', 'wrestling', 'formula 1', 'f1', 'motogp', 'cricket',
+      'rugby', 'afl', 'nrl', 'premier league', 'la liga', 'bundesliga', 'serie a',
+      'champions league', 'world cup', 'euros', 'copa america', 'tour de france',
+      'wimbledon', 'us open', 'french open', 'australian open', 'grand slam',
+      'playoff', 'playoffs', 'championship', 'tournament',
+      'quarterback', 'pitcher', 'roster', 'draft pick', 'mvp', 'rookie',
+    ];
+    const CLUSTER_ELON_KEYWORDS = ['elon', 'musk', 'spacex', 'tesla', 'doge department', 'department of government efficiency', 'doge spending'];
+
     const res = await fetchWithTimeout(`https://data-api.polymarket.com/trades?limit=200`);
     if (!res.ok) return;
     const recentTrades = await res.json();
@@ -747,7 +776,12 @@ async function runClusterScanner() {
       const price = parseFloat(t.price || 0);
       if (price < CLUSTER_PRICE_MIN || price > CLUSTER_PRICE_MAX) continue;
       const title = t.title || '';
-      if (CRYPTO_KEYWORDS.some(kw => title.toLowerCase().includes(kw))) continue;
+      const titleLowerCluster = title.toLowerCase();
+      if (
+        CLUSTER_CRYPTO_KEYWORDS.some(kw => titleLowerCluster.includes(kw)) ||
+        CLUSTER_SPORTS_KEYWORDS.some(kw => titleLowerCluster.includes(kw)) ||
+        CLUSTER_ELON_KEYWORDS.some(kw => titleLowerCluster.includes(kw))
+      ) continue;
 
       const conditionId = t.conditionId;
       if (!conditionId) continue;

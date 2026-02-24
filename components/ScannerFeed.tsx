@@ -91,7 +91,7 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
                     <div className="text-[10px] text-slate-500 font-mono mt-0.5">{formatTime(user.timestamp)}</div>
                   </td>
                   <td className="px-4 py-4">
-                    <div className="text-slate-300 font-medium line-clamp-1 max-w-xs">{user.market_title}</div>
+                    <div className="text-slate-300 font-medium">{user.market_title}</div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">{(user.buy_price * 100).toFixed(0)}c BUY</span>
                       {user.trade_usdc > 0 && (

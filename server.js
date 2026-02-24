@@ -670,7 +670,7 @@ async function runScanner() {
 
       stats.tradesChecked++;
 
-      if (t.side === 'BUY' && price <= 0.20) {
+      if (t.side === 'BUY' && price <= 0.10) {
         const userAddress = t.proxyWallet || t.user;
         if (!userAddress) continue;
 
@@ -685,10 +685,11 @@ async function runScanner() {
             return val > max ? val : max;
           }, 0);
 
-          // Flag if any single position is worth >= $2,000
+          // Flag if: < 5 positions, PNL in range, and at least one position > $2,000
           const hasLargePosition = maxPosValue >= 2000;
+          const fewPositions = positions.length < 5;
 
-          if (hasLargePosition && pnlValue < 30000 && pnlValue > -30000) {
+          if (hasLargePosition && fewPositions && pnlValue < 20000 && pnlValue > -20000) {
             stats.lowPriceMatches++;
             const whale = {
               id: hash,
@@ -711,8 +712,9 @@ async function runScanner() {
           } else {
             const failReasons = [];
             if (!hasLargePosition) failReasons.push(`Max position too small ($${maxPosValue.toFixed(0)})`);
-            if (pnlValue >= 30000) failReasons.push(`PNL too high ($${pnlValue.toLocaleString()})`);
-            if (pnlValue <= -30000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
+            if (!fewPositions) failReasons.push(`Too many positions (${positions.length})`);
+            if (pnlValue >= 20000) failReasons.push(`PNL too high ($${pnlValue.toLocaleString()})`);
+            if (pnlValue <= -20000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
             recentRejects = [{
               address: userAddress,
               username: t.name || t.pseudonym || userAddress.slice(0, 10) + '...',

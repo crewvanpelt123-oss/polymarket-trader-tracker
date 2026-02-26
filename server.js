@@ -685,11 +685,11 @@ async function runScanner() {
             return val > max ? val : max;
           }, 0);
 
-          // Flag if: < 5 positions, PNL in range, and at least one position > $2,000
-          const hasLargePosition = maxPosValue >= 2000;
-          const fewPositions = positions.length < 5;
+          // Flag if: < 6 positions, PNL in range, and at least one position > $1,000
+          const hasLargePosition = maxPosValue >= 1000;
+          const fewPositions = positions.length < 6;
 
-          if (hasLargePosition && fewPositions && pnlValue < 20000 && pnlValue > -20000) {
+          if (hasLargePosition && fewPositions && pnlValue < 150000 && pnlValue > -30000) {
             stats.lowPriceMatches++;
             const whale = {
               id: hash,
@@ -713,8 +713,8 @@ async function runScanner() {
             const failReasons = [];
             if (!hasLargePosition) failReasons.push(`Max position too small ($${maxPosValue.toFixed(0)})`);
             if (!fewPositions) failReasons.push(`Too many positions (${positions.length})`);
-            if (pnlValue >= 20000) failReasons.push(`PNL too high ($${pnlValue.toLocaleString()})`);
-            if (pnlValue <= -20000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
+            if (pnlValue >= 150000) failReasons.push(`PNL too high ($${pnlValue.toLocaleString()})`);
+            if (pnlValue <= -30000) failReasons.push(`PNL too low ($${pnlValue.toLocaleString()})`);
             recentRejects = [{
               address: userAddress,
               username: t.name || t.pseudonym || userAddress.slice(0, 10) + '...',
@@ -847,10 +847,12 @@ async function runClusterScanner() {
       const walletNewness = await pLimit(
         walletAddrs.map(addr => async () => {
           try {
-            const r = await fetchWithTimeout(`https://data-api.polymarket.com/positions?user=${addr}`);
+            const r = await fetchWithTimeout(`https://data-api.polymarket.com/activity?user=${addr}&limit=25`);
             if (!r.ok) return { addr, isNew: false };
-            const positions = await r.json();
-            return { addr, isNew: positions.length < 3 };
+            const activity = await r.json();
+            // "Fresh" = fewer than 20 total transactions — harder to fake than open position count
+            const totalTxns = Array.isArray(activity) ? activity.length : 0;
+            return { addr, isNew: totalTxns < 20 };
           } catch {
             return { addr, isNew: false };
           }

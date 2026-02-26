@@ -44,8 +44,9 @@ const ScannerFeed: React.FC<ScannerFeedProps> = ({
     if (user.pos_count < 3) reasons.push('Highly concentrated');
     else if (user.pos_count < 6) reasons.push('Concentrated');
     if (user.max_pos_value > 5000) reasons.push('High conviction');
-    else if (user.max_pos_value > 2000) reasons.push('Strong conviction');
-    return reasons.length > 0 ? reasons : ['Whale signal'];
+    else if (user.max_pos_value >= 1000) reasons.push('Stealth entry');
+    if (user.pnl >= 50000) reasons.push('Consistent pro');
+    return reasons.length > 0 ? reasons : ['Niche signal'];
   };
 
   return (

@@ -739,6 +739,76 @@ async function runScanner() {
 setInterval(runScanner, SCAN_INTERVAL);
 runScanner();
 
+// ── CBTRADING WATCHER ─────────────────────────────────────────────────────────
+const CBT_ADDRESS = '0x1920fb2f2b88ae1942be59a8845c4ef38bafa04e';
+const CBT_POLL_INTERVAL = 30000; // 30 seconds
+let cbtSeenHashes = new Set();
+
+async function sendCBTAlert(trade) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  try {
+    const side = trade.side === 'BUY' ? '🟢 BUY' : '🔴 SELL';
+    const price = (parseFloat(trade.price || 0) * 100).toFixed(0);
+    const size = parseFloat(trade.size || 0).toFixed(0);
+    const usdcSpent = (parseFloat(trade.price || 0) * parseFloat(trade.size || 0)).toFixed(2);
+    const polyLink = trade.slug
+      ? `https://polymarket.com/event/${trade.slug}`
+      : 'https://polymarket.com/profile/' + CBT_ADDRESS;
+    await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: '@everyone',
+        embeds: [{
+          title: `📣 CBTrading made a trade`,
+          color: trade.side === 'BUY' ? 0x10b981 : 0xf43f5e,
+          fields: [
+            { name: 'Side', value: side, inline: true },
+            { name: 'Price', value: `${price}¢`, inline: true },
+            { name: 'Size', value: `${size} shares (~$${usdcSpent})`, inline: true },
+            { name: 'Market', value: trade.title || 'Unknown', inline: false },
+            { name: 'Outcome', value: trade.outcome || 'N/A', inline: true },
+            { name: 'Polymarket', value: `[View Market](${polyLink})`, inline: true },
+          ],
+          footer: { text: 'CBTrading Watcher' },
+          timestamp: new Date().toISOString()
+        }]
+      })
+    });
+  } catch (e) {
+    console.error('CBT Discord webhook error:', e.message);
+  }
+}
+
+async function runCBTWatcher() {
+  try {
+    const res = await fetchWithTimeout(
+      `https://data-api.polymarket.com/trades?user=${CBT_ADDRESS}&limit=20`
+    );
+    if (!res.ok) return;
+    const trades = await res.json();
+    const isFirstRun = cbtSeenHashes.size === 0;
+    for (const t of trades) {
+      const hash = t.transactionHash || `${CBT_ADDRESS}-${t.timestamp}`;
+      if (cbtSeenHashes.has(hash)) continue;
+      cbtSeenHashes.add(hash);
+      if (!isFirstRun) {
+        console.log(`CBTrading new trade detected: ${t.side} ${t.title}`);
+        await sendCBTAlert(t);
+      }
+    }
+    if (isFirstRun) {
+      console.log(`CBTrading watcher started — tracking ${trades.length} existing trades`);
+    }
+  } catch (e) {
+    console.error('CBT watcher error:', e.message);
+  }
+}
+
+setInterval(runCBTWatcher, CBT_POLL_INTERVAL);
+runCBTWatcher();
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function runClusterScanner() {
   try {
     const CLUSTER_CRYPTO_KEYWORDS = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'solana', 'sol', 'doge', 'dogecoin', 'xrp', 'ripple', 'bnb', 'cardano', 'ada', 'altcoin', 'defi', 'nft', 'token', 'coin', 'blockchain', 'web3'];
